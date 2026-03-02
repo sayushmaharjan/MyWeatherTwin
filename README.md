@@ -153,6 +153,88 @@ Baselines include LLM-only and RAG-without-fine-tuning systems.
 - Design and implement frontend interface  
 - Integrate Flask API for user interaction  
 - Connect AI agents to frontend  
-- Support evaluation and final documentation  
+- Support evaluation and final documentation
 
+---
+
+## 🚀 Phase 2 Evolution & New Features
+
+Since Phase 1, the system has evolved from a proposal into a functional prototype with the following technical implementations:
+
+- **Snowflake Knowledge Layer**: Migrated from local CSV storage to a tiered Snowflake environment for standardized data governance and high-speed analytics.
+- **AI Modeling Pipeline**: Implemented BERT-based and zero-shot classification (`facebook/bart-large-mnli`) to categorize weather conditions and generate predictive summaries.
+- **Interactive Geospatial Interface**: Developed a Folium-based map with real-time weather layers (Temperature, Precipitation, Clouds, etc.) and coordinate-click triggers.
+- **Secure Infrastructure**: Added a custom user authentication flow and configured Snowflake connectors with MFA TOTP security.
+- **Operational Monitoring**: Integrated a live tracking panel to monitor query latency and pipeline performance metadata.
+
+---
+
+## 🛠️ System Architecture
+
+The platform is built on a three-layer architecture:
+
+1. **Data Ingestion & Knowledge Layer**  
+   Uses Snowflake for versioned storage of NOAA historical records and IPCC reports.
+
+2. **Retrieval & Intelligence Pipeline**  
+   Employs a RAG (Retrieval-Augmented Generation) strategy to fetch historical context and generate grounded AI responses.
+
+3. **Interface & Delivery**  
+   A Streamlit dashboard serves as the user-facing portal, supported by a Flask API for backend logic.
+
+---
+
+## 📦 Data Inventory & Sources
+
+| Source | Type | Usage |
+|--------|------|-------|
+| **NOAA GHCN** | Structured Tabular | Primary source for historical climate baselines |
+| **WeatherAPI** | JSON API | Provides live observations, AQI, and short-term forecasts |
+| **OpenWeatherMap** | JSON / Tiles | Powers interactive map layers and geospatial visuals |
+| **U.S. Weather Events (2016–2022)** | Structured Tabular | Extreme event trend analysis |
+
+---
+
+## ⚙️ Setup & Execution Instructions
+
+### 1️⃣ Prerequisites
+
+- Python 3.9+
+- Snowflake Account (with MFA enabled)
+- API Keys: WeatherAPI, OpenWeatherMap, and Groq/OpenAI
+
+---
+
+### 2️⃣ Environment Configuration
+
+Clone the repository and create a `.env` file in the root directory:
+
+```bash
+WEATHERAPI_KEY=your_weatherapi_key
+OPENWEATHER_API_KEY=your_openweather_key
+GROQ_API_KEY=your_groq_api_key
+SNOWFLAKE_USER=your_user
+SNOWFLAKE_PASSWORD=your_password
+SNOWFLAKE_ACCOUNT=your_account_identifier
+```
+---
+
+### 3️⃣ Installation
+
+```bash
+pip install -r requirements.txt
+```
+### 4️⃣ Running the Application
+To launch the interactive dashboard:
+
+```bash
+streamlit run app.py
+```
+
+## 👥 Individual Contribution Summary
+
+| Member | Contribution Description | % Contribution |
+|--------|-------------------------|----------------|
+| **Sayush Maharjan** | **Weather AI & Geospatial:** Implemented BERT/Zero-shot models, Folium map interactions, and Snowflake feature engineering views | 55% |
+| **Harsha Sri Neeriganti** | **App & Infrastructure:** Developed Streamlit UI, user authentication flow, real-time API integration, and ingestion pipelines | 45% |
 

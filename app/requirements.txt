@@ -1,9 +1,0 @@
-streamlit
-pandas
-requests
-plotly
-transformers
-torch
-datasets
-python-dotenv
-openai
