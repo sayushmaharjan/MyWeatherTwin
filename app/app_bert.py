@@ -14,6 +14,7 @@ import torch
 
 from datetime import datetime, timedelta
 from huggingface_hub import login
+from datasets import load_dataset
 
 # login(token=os.getenv("HF_TOKEN"))
 
@@ -87,7 +88,6 @@ def load_weather_dataset():
     Fallback to sample data if not available
     """
     try:
-        from datasets import load_dataset
         df1 = pd.read_csv("/Users/sayush/Documents/cs5588/CS-5588/week-4/data/los_angeles.csv")
         df1["city"] = "Los Angeles"
 

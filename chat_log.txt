@@ -1,0 +1,74 @@
+============================================================
+Timestamp   : 2026-02-24 16:17:41
+Source      : BERT
+User Query  : weather at los angeles during winter?
+Bot Response: 
+🔮 **Weather Forecast for Los Angeles** (AI-Powered Prediction)
+
+🤖 **BERT Model Prediction:** 
+- **Condition:** POSITIVE
+- **Confidence:** 65.2%
+
+📊 **Statistical Analysis** (Based on 20 recent records):
+- **Average Temperature:** 67.9°C
+- **Temperature Range:** 58.0°C to 77.6°C
+
+- **Average Wind Speed:** nan km/h
+- **Most Common Condition:** Clear
+
+🎯 **Forecast Summary:**
+Expect weather conditions similar to recent patterns. The AI model predicts **POSITIVE** 
+with 65.2% confidence based on historical data analysis.
+
+⚠️ *This prediction is based on historical patterns and AI classification.*
+
+============================================================
+
+============================================================
+Timestamp   : 2026-02-24 17:26:04
+Source      : API
+User Query  : weather at los angeles during winter?
+Weather Data: Current weather in Los Angeles: Sunny. Temperature: 26.4°C (feels like 27.2°C), Humidity: 24%, Wind: 14.0 km/h
+Bot Response: The current weather in Los Angeles is sunny with a temperature of 26.4°C, feels like 27.2°C, humidity at 24%, and wind at 14.0 km/h
+============================================================
+
+============================================================
+Timestamp   : 2026-02-24 17:26:18
+Source      : API
+User Query  : weather at los angeles during winter?
+Weather Data: Current weather in Los Angeles: Sunny. Temperature: 26.4°C (feels like 27.2°C), Humidity: 24%, Wind: 14.0 km/h
+Bot Response: The current weather in Los Angeles is sunny with a temperature of 26.4°C, feels like 27.2°C, humidity at 24%, and wind at 14.0 km/h
+============================================================
+
+============================================================
+Timestamp   : 2026-02-24 17:29:33
+Source      : API
+User Query  : weather at los angeles during winter?
+Weather Data: Current weather in Los Angeles: Sunny. Temperature: 26.4°C (feels like 27.2°C), Humidity: 24%, Wind: 14.0 km/h
+Bot Response: The current weather in Los Angeles is sunny with a temperature of 26.4°C, feels like 27.2°C, humidity at 24%, and wind at 14.0 km/h
+============================================================
+
+============================================================
+Timestamp   : 2026-02-24 17:31:08
+Source      : API
+User Query  : weather at san diego?
+Weather Data: Current weather in San Diego: Partly cloudy. Temperature: 21.7°C (feels like 21.7°C), Humidity: 49%, Wind: 10.8 km/h
+Bot Response: The current weather in San Diego is partly cloudy with a temperature of 21.7°C, humidity of 49%, and wind speed of 10.8 km/h
+============================================================
+
+============================================================
+Timestamp   : 2026-02-24 17:31:15
+Source      : API
+User Query  : weather at san diego?
+Weather Data: Current weather in San Diego: Partly cloudy. Temperature: 21.7°C (feels like 21.7°C), Humidity: 49%, Wind: 10.8 km/h
+Bot Response: The current weather in San Diego is partly cloudy with a temperature of 21.7°C, humidity of 49%, and wind speed of 10.8 km/h
+============================================================
+
+============================================================
+Timestamp   : 2026-02-24 17:31:26
+Source      : API
+User Query  : weather at los angeles during winter?
+Weather Data: Current weather in Los Angeles: Sunny. Temperature: 26.4°C (feels like 27.2°C), Humidity: 24%, Wind: 14.0 km/h
+Bot Response: The current weather in Los Angeles is sunny with a temperature of 26.4°C, feels like 27.2°C, humidity at 24%, and wind at 14.0 km/h
+============================================================
+
