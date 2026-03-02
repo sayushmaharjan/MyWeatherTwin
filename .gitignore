@@ -1,2 +1,26 @@
 app/.env
 .env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Mac
+.DS_Store
+
+# Logs
+*.log
+pipeline_logs.csv
+chat_log.txt
+
+# Virtual env
+venv/
+.env
+
+# Data files
+*.csv
+
+# Screenshots / outputs
+output/
