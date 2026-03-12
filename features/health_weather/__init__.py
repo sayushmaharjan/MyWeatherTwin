@@ -1,0 +1,1 @@
+"""Health & Wellness Weather Index."""

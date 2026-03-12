@@ -16,23 +16,7 @@ import torch
 
 from datetime import datetime, timedelta
 from huggingface_hub import login
-
-import snowflake.connector
-
-import folium
-from streamlit_folium import st_folium
-from folium import plugins
-
-from app_auth import auth_ui
-
-
-
-# Ensure project root is on sys.path so "python" package is importable
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
-
-from python.snowflake_client import run_query
+from datasets import load_dataset
 
 # login(token=os.getenv("HF_TOKEN"))
 
@@ -135,67 +119,14 @@ def load_weather_model():
 # =========================
 @st.cache_data
 def load_weather_dataset():
+    """
+    Load historical weather dataset
+    Dataset: https://huggingface.co/datasets/mongodb/weather
+    Fallback to sample data if not available
+    """
     try:
-        sql = """
-            SELECT
-                CITY,
-                OBS_DATE AS obs_date,
-                TAVG     AS temperature,
-                AWND     AS wind_speed,
-                PRCP     AS precipitation,
-                CONDITION
-            FROM WEATHER_ENRICHED
-        """
-        df, latency = run_query(sql, query_name="load_weather_dataset")
-        df.columns = [c.lower() for c in df.columns]
-        df['city'] = df['city'].str.strip().str.lower()
-
-        df['clean_city'] = df['city'].apply(
-            lambda x: re.split(r'\d|,', x)[0].strip()
-        )
-
-        print(df.columns)
-        return df, latency
-    
-    except Exception as e:
-        import numpy as np
-        
-        cities = ['New York', 'London', 'Tokyo', 'Paris', 'Sydney', 'Berlin', 
-                  'Rome', 'Madrid', 'Beijing', 'Moscow', 'Dubai', 'Singapore']
-        
-        conditions = ['Sunny', 'Partly Cloudy', 'Cloudy', 'Rainy', 'Stormy', 
-                     'Snowy', 'Foggy', 'Windy']
-        
-        # Generate realistic weather data
-        n_records = 1000
-        
-        sample_data = {
-            'city': np.random.choice(cities, n_records),
-            'temperature': np.random.normal(20, 10, n_records),
-            'humidity': np.random.uniform(30, 90, n_records),
-            'wind_speed': np.random.uniform(5, 40, n_records),
-            'pressure': np.random.normal(1013, 20, n_records),
-            'condition': np.random.choice(conditions, n_records),
-            'date': pd.date_range('2023-01-01', periods=n_records, freq='6H')
-        }
-        
-        df = pd.DataFrame(sample_data)
-        st.info(f"ℹ️ Using sample dataset with {len(df)} records")
-        return df
-
-
-
-
-# def load_weather_dataset():
-#     """
-#     Load historical weather dataset
-#     Dataset: https://huggingface.co/datasets/mongodb/weather
-#     Fallback to sample data if not available
-#     """
-#     try:
-#         from datasets import load_dataset
-#         # df1 = pd.read_csv("/Users/sayush/Documents/cs5588/CS-5588/week-5/data/los_angeles.csv")
-#         # df1["city"] = "Los Angeles"
+        df1 = pd.read_csv("/Users/sayush/Documents/cs5588/CS-5588/week-4/data/los_angeles.csv")
+        df1["city"] = "Los Angeles"
 
 #         # df2 = pd.read_csv("/Users/sayush/Documents/cs5588/CS-5588/week-5/data/san_diego.csv")
 #         # df2["city"] = "San Diego"

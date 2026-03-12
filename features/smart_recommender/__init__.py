@@ -1,0 +1,1 @@
+"""Smart Outfit & Activity Recommender."""
