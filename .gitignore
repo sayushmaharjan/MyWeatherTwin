@@ -1,5 +1,6 @@
 app/.env
 .env
+<<<<<<< HEAD
 
 # Python
 __pycache__/
@@ -24,3 +25,9 @@ venv/
 
 # Screenshots / outputs
 output/
+=======
+__pycache__/
+*.pyc
+.DS_Store
+logs/
+>>>>>>> 101ff25 (added features and clean up)

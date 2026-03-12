@@ -12,10 +12,62 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipe
 import torch
 
 from datetime import datetime, timedelta
+from app_auth import auth_ui
 
 import folium
 from streamlit_folium import st_folium
 from folium import plugins
+import streamlit.components.v1 as components
+import time
+
+
+DEV_MODE = True
+# =========================
+# SESSION STATE INIT
+# =========================
+if "user" not in st.session_state:
+    st.session_state["user"] = None
+if "username" not in st.session_state:
+    st.session_state["username"] = None
+if "sidebar_open" not in st.session_state:
+    st.session_state["sidebar_open"] = True
+
+# =========================
+# AUTHENTICATION CHECK
+# =========================
+if "show_welcome" not in st.session_state:
+    st.session_state["show_welcome"] = False
+
+if DEV_MODE and st.session_state["user"] is None:
+    # Auto login for development
+    st.session_state["user"] = "dev_user"
+    st.session_state["username"] = "Say"
+
+if st.session_state["user"] is None:
+    auth_ui()
+    st.stop()
+else:
+    if not st.session_state["show_welcome"]:
+        success_placeholder = st.empty()
+        success_placeholder.success(f"👋 Welcome, {st.session_state['username']}")
+        time.sleep(3)
+        success_placeholder.empty()
+        st.session_state["show_welcome"] = True
+    
+
+# =========================
+# SIDEBAR TOGGLE & LOGOUT
+# =========================
+# if st.button("☰ Toggle Sidebar"):
+#     st.session_state.sidebar_open = not st.session_state.sidebar_open
+
+if st.session_state["user"] and st.session_state.sidebar_open:
+    if st.sidebar.button("Logout"):
+        st.session_state["user"] = None
+        st.session_state["username"] = None
+        st.session_state["show_welcome"] = False
+        st.rerun()
+
 
 # =========================
 # LOAD ENV
@@ -699,6 +751,26 @@ def run_agent(user_input: str) -> str:
     return error_msg
 
 # =========================
+# AI OVERVIEW FUNCTION
+# =========================
+@st.cache_data(ttl=600, show_spinner=False)
+def get_ai_overview(_weather_json: str) -> str:
+    """Generate a natural-language weather overview using the LLM."""
+    try:
+        response = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are a weather forecaster that responds in natural language."},
+                {"role": "user", "content": f"How should one prepare for the weather today? What should they wear, pack, or keep in mind? The JSON data for the local weather forecast is below. Talk as if you're on air for one person. 350 characters maximum. {_weather_json}"},
+            ],
+            model=MODEL,
+            temperature=0.7,
+            max_tokens=200,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        return f"Unable to generate overview: {e}"
+
+# =========================
 # PARSE JSON (robust)
 # =========================
 def parse_agent_response(content: str) -> dict:
@@ -723,7 +795,7 @@ st.markdown("""
         --color-wind: #30D158;
         --color-pressure: #BF5AF2;
         --color-live: #32D74B;
-        --color-border: rgba(255,255,255,0.08);
+        --color-border: rgba(164, 164, 164, 0.34);
         --radius: 12px;
     }
     /* Card padding & radius */
@@ -769,7 +841,7 @@ st.markdown("""
     .delta-warn { background:rgba(255,159,10,0.15); color:#FF9F0A; }
     .delta-bad { background:rgba(255,69,58,0.15); color:#FF453A; }
     /* Hero temp */
-    .hero-temp { font-size:4rem; font-weight:400; line-height:1; margin:0; }
+    .hero-temp { font-size:2.5rem !important; font-weight:400; line-height:1; margin:0; }
     .hero-condition { font-size:1.1rem; font-weight:500; opacity:0.7; margin-top:4px; }
     /* Condition card */
     .condition-card { border-radius:var(--radius); padding:16px 24px; text-align:center; color:white; text-shadow:0 1px 3px rgba(0,0,0,0.3); }
@@ -782,11 +854,14 @@ st.markdown("""
     /* Arrow button border */
     .arrow-btn button { border:1.5px solid rgba(255,255,255,0.18) !important; }
     hr { border:none !important; border-top:1px solid rgba(255,255,255,0.06) !important; margin:12px 0 !important; }
+    
     /* Fixed Forecast Dock */
     .forecast-dock {
         position:fixed; bottom:0; left:0; right:0; z-index:9999;
-        background:rgba(40,40,45,0.95); backdrop-filter:blur(16px);
-        border-top:1px solid rgba(255,255,255,0.08);
+        background: var(--secondary-background-color);
+        color: var(--text-color);
+        backdrop-filter: blur(16px);
+        border-top:1px solid rgba(49, 51, 63, 0.4);
         display:flex; align-items:center; padding:0; height:90px;
     }
     .dock-label {
@@ -796,7 +871,7 @@ st.markdown("""
     }
     .dock-label-title { font-size:0.7rem; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; opacity:0.6; margin-bottom:6px; }
     .dock-tabs { display:flex; gap:0; }
-    .dock-tab { padding:2px 10px; font-size:0.68rem; font-weight:600; cursor:pointer; border-radius:4px; opacity:0.45; transition: all 0.15s ease; }
+    .dock-tab { padding:2px 10px; font-size:0.68rem; font-weight:600; cursor:pointer; border-radius:4px; opacity:0.6; transition: all 0.15s ease; }
     .dock-tab:hover { opacity:0.7; }
     .dock-tab.active { opacity:1; background:rgba(255,255,255,0.1); }
     .dock-items {
@@ -827,6 +902,8 @@ if 'map_city' not in st.session_state:
     st.session_state.map_city = "New York"
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = load_chat_from_csv()
+if 'all_plans' not in st.session_state:
+    st.session_state.all_plans = [m for m in st.session_state.chat_history if m.get('role') == 'assistant']
 
 with st.spinner("Loading AI model and weather dataset..."):
     classifier = load_weather_model()
@@ -843,9 +920,12 @@ with nav_col2:
     city_input = st.text_input("Search", value=st.session_state.map_city, key="city_search",
                                label_visibility="collapsed", placeholder="Search for a city...")
 with nav_col3:
+    _n_records = len(weather_df) if weather_df is not None else 0
+    _n_cities = weather_df['city'].nunique() if weather_df is not None and 'city' in weather_df.columns else 0
     st.markdown(f'''<div class="nav-badges">
         <span class="nav-badge nb-green">Model: BERT {bert_ok}</span>
-        <span class="nav-badge nb-blue">Live Data: Connected</span>
+        <span class="nav-badge nb-blue">Records: {_n_records}</span>
+        <span class="nav-badge nb-blue">Cities: {_n_cities}</span>
     </div>''', unsafe_allow_html=True)
 
 # Handle search
@@ -860,6 +940,113 @@ if st.session_state.selected_lat and st.session_state.selected_lon:
 else:
     weather_data = fetch_weather(st.session_state.map_city)
 
+
+# =============================================
+# TOP SECTION: AI Overview (left) + Weather Detail (right)
+# =============================================
+if "error" not in weather_data:
+    cur = parse_current(weather_data)
+
+    overview_col, detail_col = st.columns([2, 3])
+
+    # ── LEFT: AI Overview ──
+    with overview_col:
+        with st.container(border=True):
+            st.markdown("**🤖 AI Weather Overview**")
+            st.caption(f"{cur['city']} · {cur['localtime']}")
+            weather_json_str = json.dumps({
+                "city": cur["city"],
+                "temp_c": cur["temp_c"],
+                "condition": cur["condition"],
+                "humidity": cur["humidity"],
+                "wind_kph": cur["wind_kph"],
+                "uv": cur["uv"],
+                "vis_km": cur["vis_km"],
+                "sunrise": cur["sunrise"],
+                "sunset": cur["sunset"],
+            })
+            with st.spinner("Generating overview..."):
+                overview_text = get_ai_overview(weather_json_str)
+            st.markdown(f'<div style="font-size:1.05rem; line-height:1.6; padding:8px 0;">{overview_text}</div>', unsafe_allow_html=True)
+
+    # ── RIGHT: Weather Detail Card ──
+    with detail_col:
+        with st.container(border=True):
+            # Unit toggle inside card header
+            hero_col, toggle_col = st.columns([5, 1])
+            with toggle_col:
+                use_imperial = st.toggle("°F", key="unit_toggle")
+
+            if use_imperial:
+                temp_val = f"{(cur['temp_c'] * 9/5) + 32:.1f}"
+                temp_unit = "°F"
+                wind_disp = f"{cur['wind_kph'] * 0.621371:.1f} mph"
+                vis_disp = f"{cur['vis_km'] * 0.621371:.1f} mi"
+                press_disp = f"{cur['pressure_mb'] * 0.02953:.2f} inHg"
+            else:
+                temp_val = f"{cur['temp_c']}"
+                temp_unit = "°C"
+                wind_disp = f"{cur['wind_kph']} km/h"
+                vis_disp = f"{cur['vis_km']} km"
+                press_disp = f"{cur['pressure_mb']} mb"
+
+            # Hero temp row
+            cond_l = cur['condition'].lower()
+            ic = "☀️" if ("sun" in cond_l or "clear" in cond_l) else "🌧️" if ("rain" in cond_l or "drizzle" in cond_l) else "☁️" if ("cloud" in cond_l or "overcast" in cond_l) else "❄️" if "snow" in cond_l else "⛈️" if ("storm" in cond_l or "thunder" in cond_l) else "🌤️"
+
+            with hero_col:
+                st.markdown(f"""<div style="display:flex; align-items:center; gap:16px;">
+                    <div>
+                        <p class="hero-temp">{temp_val}<span style="font-size:2rem; opacity:0.6;">{temp_unit}</span></p>
+                        <p class="hero-condition">{ic} {cur['condition']}</p>
+                    </div>
+                    <div style="opacity:0.6; font-size:0.85rem;">
+                        {cur['city']}, {cur['region']}<br>{cur['localtime']}
+                    </div>
+                </div>""", unsafe_allow_html=True)
+
+
+            # 6 metric tiles in 3 columns — all with delta badges
+            c1, c2, c3, c4, c5, c6 = st.columns(6)
+            with c1:
+                st.metric("Humidity", f"{cur['humidity']}%")
+                h_cls = "delta-good" if cur['humidity'] < 60 else ("delta-warn" if cur['humidity'] < 80 else "delta-bad")
+                h_lbl = "Normal" if cur['humidity'] < 60 else ("High" if cur['humidity'] < 80 else "Very High")
+                st.markdown(f'<span class="delta-chip {h_cls}">{h_lbl}</span>', unsafe_allow_html=True)
+            with c2:
+                st.metric("Wind", wind_disp)
+                w_cls = "delta-good" if cur['wind_kph'] < 20 else ("delta-warn" if cur['wind_kph'] < 50 else "delta-bad")
+                w_lbl = "Calm" if cur['wind_kph'] < 20 else ("Breezy" if cur['wind_kph'] < 50 else "Strong")
+                st.markdown(f'<span class="delta-chip {w_cls}">{w_lbl}</span>', unsafe_allow_html=True)
+            with c3:
+                uv_val = float(cur['uv']) if str(cur['uv']).replace('.','',1).isdigit() else 0
+                st.metric("UV Index", cur['uv'])
+                uv_cls = "delta-good" if uv_val <= 2 else ("delta-warn" if uv_val <= 7 else "delta-bad")
+                uv_lbl = "Low" if uv_val <= 2 else ("Moderate" if uv_val <= 5 else "High")
+                st.markdown(f'<span class="delta-chip {uv_cls}">{uv_lbl}</span>', unsafe_allow_html=True)
+            with c4:
+                st.metric("Pressure", press_disp)
+                p_val = cur['pressure_mb']
+                p_cls = "delta-good" if 1000 <= p_val <= 1025 else ("delta-warn" if 980 <= p_val < 1000 or 1025 < p_val <= 1040 else "delta-bad")
+                p_lbl = "Normal" if 1000 <= p_val <= 1025 else ("Low" if p_val < 1000 else "High")
+                st.markdown(f'<span class="delta-chip {p_cls}">{p_lbl}</span>', unsafe_allow_html=True)
+            with c5:
+                st.metric("Visibility", vis_disp)
+                v_val = cur['vis_km']
+                v_cls = "delta-good" if v_val >= 10 else ("delta-warn" if v_val >= 5 else "delta-bad")
+                v_lbl = "Clear" if v_val >= 10 else ("Moderate" if v_val >= 5 else "Poor")
+                st.markdown(f'<span class="delta-chip {v_cls}">{v_lbl}</span>', unsafe_allow_html=True)
+            with c6:
+                aqi_raw = cur.get('aqi', 'N/A')
+                st.metric("AQI", aqi_raw)
+                if str(aqi_raw).isdigit():
+                    aqi_v = int(aqi_raw)
+                    a_cls = "delta-good" if aqi_v <= 2 else ("delta-warn" if aqi_v <= 4 else "delta-bad")
+                    a_lbl = "Good" if aqi_v <= 2 else ("Moderate" if aqi_v <= 4 else "Unhealthy")
+                    st.markdown(f'<span class="delta-chip {a_cls}">{a_lbl}</span>', unsafe_allow_html=True)
+else:
+    st.error(weather_data.get("error", "Could not fetch weather data."))
+
 # =========================
 # MAIN SPLIT-PANE LAYOUT
 # =========================
@@ -868,7 +1055,11 @@ left_pane, right_pane = st.columns([3, 2])
 # ─────────────────────────────────────
 # LEFT PANE: AI Planning Workspace
 # ─────────────────────────────────────
-with left_pane:
+
+#auto scroll working after refresh
+
+@st.fragment #refreshes the chat section only
+def chat_section():
     with st.container(border=True):
         # Header: radio left, title center-ish, action buttons right
         hdr_radio, hdr_title, hdr_actions = st.columns([2, 3, 2])
@@ -882,9 +1073,14 @@ with left_pane:
             act1, act2 = st.columns(2)
             with act1:
                 if st.button("＋ New", key="new_chat_btn", use_container_width=True):
+                    for m in st.session_state.chat_history:
+                        if m.get('role') == 'assistant':
+                            st.session_state.all_plans.append(m)
+                    if os.path.exists(CHAT_CSV) and os.path.getsize(CHAT_CSV) > 0:
+                        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        archive_name = f"chat_log_{ts}.csv"
+                        os.rename(CHAT_CSV, archive_name)
                     st.session_state.chat_history = []
-                    if os.path.exists(CHAT_CSV):
-                        os.remove(CHAT_CSV)
                     st.rerun()
             with act2:
                 if st.button("🗑️", key="clear_chat_btn", use_container_width=True):
@@ -897,7 +1093,7 @@ with left_pane:
 
         st.divider()
 
-        # Chat history display
+        # Chat history display (auto-scrolls to bottom)
         chat_container = st.container(height=400)
         with chat_container:
             if not st.session_state.chat_history:
@@ -912,6 +1108,33 @@ with left_pane:
                     else:
                         st.markdown(f'<div class="chat-ai"><div class="chat-role">WeatherTwin AI</div>{msg["content"]}</div>',
                                     unsafe_allow_html=True)
+                # Anchor at the bottom
+                st.markdown('<div id="chat-bottom-anchor"></div>', unsafe_allow_html=True)
+
+        # Auto-scroll using components.html — this actually runs JS
+        if st.session_state.chat_history:
+            components.html('''
+            <script>
+                function scrollChat() {
+                    const doc = window.parent.document;
+                    const anchor = doc.getElementById('chat-bottom-anchor');
+                    if (anchor) {
+                        anchor.scrollIntoView({behavior: 'smooth', block: 'end'});
+                    } else {
+                        // Fallback: scroll the inner scrollable container
+                        const containers = doc.querySelectorAll('[data-testid="stVerticalBlock"]');
+                        containers.forEach(c => {
+                            if (c.closest('[style*="overflow"]') || c.scrollHeight > c.clientHeight) {
+                                c.scrollTop = c.scrollHeight;
+                            }
+                        });
+                    }
+                }
+                // Small delay to let Streamlit finish rendering
+                setTimeout(scrollChat, 200);
+                setTimeout(scrollChat, 600);
+            </script>
+            ''', height=0)
 
         st.divider()
 
@@ -938,11 +1161,9 @@ with left_pane:
             st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
             ask_clicked = st.button("→", key="ask_btn")
 
-        # Use chip prompt if clicked
         final_input = selected_chip if selected_chip else (ai_input if ask_clicked else None)
 
         if final_input:
-            # Add user message
             st.session_state.chat_history.append({"role": "user", "content": final_input, "city": st.session_state.map_city})
             save_chat_to_csv("user", final_input, st.session_state.map_city)
 
@@ -962,7 +1183,10 @@ with left_pane:
 
             st.session_state.chat_history.append({"role": "assistant", "content": response, "city": st.session_state.map_city})
             save_chat_to_csv("assistant", response, st.session_state.map_city)
-            st.rerun()
+            st.rerun(scope="fragment")
+
+with left_pane:
+    chat_section()
 
 # ─────────────────────────────────────
 # RIGHT PANE: Dynamic Supporting Data
@@ -983,83 +1207,41 @@ with right_pane:
                 st.session_state.selected_lon = clicked_lon
                 st.rerun()
 
-    # Middle Card: Contextual Weather Details
-    if "error" not in weather_data:
-        cur = parse_current(weather_data)
-        use_imperial = st.toggle("°F / mph", key="unit_toggle")
-        if use_imperial:
-            temp_val = f"{(cur['temp_c'] * 9/5) + 32:.1f}"
-            temp_unit = "°F"
-            wind_disp = f"{cur['wind_kph'] * 0.621371:.1f} mph"
-        else:
-            temp_val = f"{cur['temp_c']}"
-            temp_unit = "°C"
-            wind_disp = f"{cur['wind_kph']} km/h"
 
-        with st.container(border=True):
-            # Hero temp row
-            cond_l = cur['condition'].lower()
-            ic = "☀️" if ("sun" in cond_l or "clear" in cond_l) else "🌧️" if ("rain" in cond_l or "drizzle" in cond_l) else "☁️" if ("cloud" in cond_l or "overcast" in cond_l) else "❄️" if "snow" in cond_l else "⛈️" if ("storm" in cond_l or "thunder" in cond_l) else "🌤️"
-
-            st.markdown(f"""<div style="display:flex; align-items:center; gap:16px;">
-                <div>
-                    <p class="hero-temp">{temp_val}<span style="font-size:2rem; opacity:0.6;">{temp_unit}</span></p>
-                    <p class="hero-condition">{ic} {cur['condition']}</p>
-                </div>
-                <div style="opacity:0.6; font-size:0.85rem;">
-                    {cur['city']}, {cur['region']}<br>{cur['localtime']}
-                </div>
-            </div>""", unsafe_allow_html=True)
-
-            st.divider()
-
-            # 6 metric tiles in 3 columns
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.metric("Humidity", f"{cur['humidity']}%")
-                h_cls = "delta-good" if cur['humidity'] < 60 else ("delta-warn" if cur['humidity'] < 80 else "delta-bad")
-                h_lbl = "Normal" if cur['humidity'] < 60 else ("High" if cur['humidity'] < 80 else "Very High")
-                st.markdown(f'<span class="delta-chip {h_cls}">{h_lbl}</span>', unsafe_allow_html=True)
-            with c2:
-                st.metric("Wind", wind_disp)
-                w_cls = "delta-good" if cur['wind_kph'] < 20 else ("delta-warn" if cur['wind_kph'] < 50 else "delta-bad")
-                w_lbl = "Calm" if cur['wind_kph'] < 20 else ("Breezy" if cur['wind_kph'] < 50 else "Strong")
-                st.markdown(f'<span class="delta-chip {w_cls}">{w_lbl}</span>', unsafe_allow_html=True)
-            with c3:
-                uv_val = float(cur['uv']) if str(cur['uv']).replace('.','',1).isdigit() else 0
-                st.metric("UV Index", cur['uv'])
-                uv_cls = "delta-good" if uv_val <= 2 else ("delta-warn" if uv_val <= 7 else "delta-bad")
-                uv_lbl = "Low" if uv_val <= 2 else ("Moderate" if uv_val <= 5 else "High")
-                st.markdown(f'<span class="delta-chip {uv_cls}">{uv_lbl}</span>', unsafe_allow_html=True)
-
-            c4, c5, c6 = st.columns(3)
-            with c4:
-                st.metric("Pressure", f"{cur['pressure_mb']} mb")
-            with c5:
-                st.metric("Visibility", f"{cur['vis_km']} km")
-            with c6:
-                st.metric("AQI", cur.get('aqi', 'N/A'))
-    else:
-        st.error(weather_data.get("error", "Could not fetch weather data."))
 
     # Bottom Card: Recently Generated Plans
     with st.container(border=True):
         st.markdown("**Recently Generated Plans**")
-        ai_msgs = [m for m in st.session_state.chat_history if m["role"] == "assistant"]
-        if ai_msgs:
-            with st.expander(f"View {len(ai_msgs)} past responses", expanded=False):
-                for idx, m in enumerate(reversed(ai_msgs[-10:])):
+        # Combine current session plans + archived plans
+        current_ai = [m for m in st.session_state.chat_history if m.get('role') == 'assistant']
+        all_plans = st.session_state.all_plans + current_ai
+        # Deduplicate by content
+        seen = set()
+        unique_plans = []
+        for m in all_plans:
+            key = m.get('content', '')[:200]
+            if key not in seen:
+                seen.add(key)
+                unique_plans.append(m)
+        if unique_plans:
+            with st.expander(f"View {len(unique_plans)} past responses", expanded=False):
+                for idx, m in enumerate(reversed(unique_plans[-10:])):
                     preview = m["content"][:120] + "..." if len(m["content"]) > 120 else m["content"]
                     city_tag = f' · {m.get("city", "")}' if m.get("city") else ""
-                    st.caption(f"#{len(ai_msgs) - idx}{city_tag}")
+                    st.caption(f"#{len(unique_plans) - idx}{city_tag}")
                     st.markdown(preview)
                     st.divider()
-            if st.button("Clear Chat History", use_container_width=True):
+            if st.button("Clear All History", use_container_width=True):
                 st.session_state.chat_history = []
+                st.session_state.all_plans = []
                 if os.path.exists(CHAT_CSV):
                     os.remove(CHAT_CSV)
                 if os.path.exists(LOG_FILE):
                     os.remove(LOG_FILE)
+                # Also remove archived logs
+                import glob
+                for f in glob.glob("chat_log_*.csv"):
+                    os.remove(f)
                 st.rerun()
         else:
             st.caption("No plans generated yet. Ask the AI assistant!")
@@ -1071,7 +1253,6 @@ with right_pane:
 dock_mode = st.query_params.get("dock", "temp")
 
 if 'weather_data' in locals() and 'error' not in weather_data:
-    # Collect next 12 hours from current time (spanning two forecast days if needed)
     current_time_str = weather_data["location"]["localtime"]
     current_time = datetime.strptime(current_time_str, "%Y-%m-%d %H:%M")
     end_time = current_time + timedelta(hours=12)
@@ -1101,47 +1282,84 @@ if 'weather_data' in locals() and 'error' not in weather_data:
         else:
             return "🌡️"
 
-    # Gather hours from all forecast days
     all_hours = []
     for day in weather_data["forecast"]["forecastday"]:
         all_hours.extend(day["hour"])
 
     forecast_items = []
+    _imperial = st.session_state.get('unit_toggle', False)
     for h in all_hours:
         h_time = datetime.strptime(h["time"], "%Y-%m-%d %H:%M")
         if current_time <= h_time <= end_time:
             ic = weather_to_icon(h["condition"]["text"], h_time)
+            if _imperial:
+                t_display = f"{(h['temp_c'] * 9/5) + 32:.0f}°F"
+            else:
+                t_display = f"{h['temp_c']:.0f}°C"
             forecast_items.append({
                 "time": h_time.strftime("%H:%M"),
                 "icon": ic,
-                "temp": f"{h['temp_c']:.0f}°",
+                "temp": t_display,
                 "humidity": f"{h['humidity']}%"
             })
 
-    show_humidity = dock_mode == 'humidity'
-
-    # Build HTML segments
+    # Build HTML with BOTH values in each item
     items_html = ""
     for item in forecast_items:
-        val = item['humidity'] if show_humidity else item['temp']
         items_html += f'''<div class="dock-item">
             <span class="dock-icon">{item["icon"]}</span>
-            <span class="dock-val">{val}</span>
+            <span class="dock-val dock-val-temp">{item["temp"]}</span>
+            <span class="dock-val dock-val-hum" style="display:none;">{item["humidity"]}</span>
             <span class="dock-time">{item["time"]}</span>
         </div>'''
 
-    temp_active = 'active' if not show_humidity else ''
-    hum_active = 'active' if show_humidity else ''
-
+    # Dock rendered with st.markdown — your existing CSS applies as-is
     st.markdown(f'''
     <div class="forecast-dock">
         <div class="dock-label">
             <span class="dock-label-title">12-HOUR FORECAST</span>
             <div class="dock-tabs">
-                <span class="dock-tab {temp_active}" onclick="window.location.search='?dock=temp'">Temp</span>
-                <span class="dock-tab {hum_active}" onclick="window.location.search='?dock=humidity'">Humidity</span>
+                <span class="dock-tab active" id="dock-tab-temp">Temp</span>
+                <span class="dock-tab" id="dock-tab-hum">Humidity</span>
             </div>
         </div>
         <div class="dock-items">{items_html}</div>
     </div>
     ''', unsafe_allow_html=True)
+
+    # Invisible iframe that injects JS into the parent page
+    components.html('''
+    <script>
+        function setupDockToggle() {
+            const doc = window.parent.document;
+            const tabTemp = doc.getElementById('dock-tab-temp');
+            const tabHum = doc.getElementById('dock-tab-hum');
+
+            if (!tabTemp || !tabHum) {
+                setTimeout(setupDockToggle, 100);
+                return;
+            }
+
+            // Avoid attaching duplicate listeners on rerun
+            if (tabTemp.dataset.bound) return;
+            tabTemp.dataset.bound = 'true';
+
+            tabTemp.addEventListener('click', function() {
+                doc.querySelectorAll('.dock-val-temp').forEach(el => el.style.display = 'inline');
+                doc.querySelectorAll('.dock-val-hum').forEach(el => el.style.display = 'none');
+                tabTemp.classList.add('active');
+                tabHum.classList.remove('active');
+            });
+
+            tabHum.addEventListener('click', function() {
+                doc.querySelectorAll('.dock-val-temp').forEach(el => el.style.display = 'none');
+                doc.querySelectorAll('.dock-val-hum').forEach(el => el.style.display = 'inline');
+                tabHum.classList.add('active');
+                tabTemp.classList.remove('active');
+            });
+        }
+        setupDockToggle();
+    </script>
+    ''', height=0)
+
+
