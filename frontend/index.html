@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WeatherTwin — AI Climate Intelligence</title>
+  <meta name="description"
+    content="GenAI-powered climate intelligence assistant. Get personalized, context-aware weather insights with historical comparison and actionable analysis.">
+
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <!-- Favicon -->
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌤️</text></svg>">
+</head>
+
+<body>
+
+  <!-- Animated Background -->
+  <div class="bg-orbs">
+    <div class="orb"></div>
+    <div class="orb"></div>
+    <div class="orb"></div>
+  </div>
+
+  <!-- Error Toast -->
+  <div class="error-toast" id="errorToast"></div>
+
+  <!-- Loading Overlay -->
+  <div class="loading-overlay" id="loading">
+    <div class="loading-spinner">
+      <div class="spinner-ring"></div>
+      <div class="loading-text">Analyzing climate data...</div>
+    </div>
+  </div>
+
+  <div class="app-container">
+
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo">
+        <div class="logo-icon">🌤️</div>
+        <div>
+          <div class="logo-text">WeatherTwin</div>
+          <div class="logo-tag">AI Climate Intelligence</div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <div class="mode-toggle">
+          <button class="mode-btn active" data-mode="dashboard" id="modeDashboard">Dashboard</button>
+          <button class="mode-btn" data-mode="compare" id="modeCompare">Compare</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Search -->
+    <section class="search-section">
+      <h1 class="search-title">Climate Intelligence at Your Fingertips</h1>
+      <p class="search-subtitle">Search any city to get real-time weather, historical context, and AI-powered insights
+        that help you understand <em>why</em> today's weather matters.</p>
+      <div class="search-bar">
+        <input type="text" id="searchInput" placeholder="Search any city — New York, Tokyo, London..."
+          autocomplete="off">
+        <button class="location-btn" id="locationBtn" title="Use my current location">📍</button>
+        <button class="search-btn" id="searchBtn">Analyze</button>
+      </div>
+    </section>
+
+    <!-- AI Insight Banner -->
+    <div class="insight-banner" id="insightBanner">
+      <div class="insight-icon">🧠</div>
+      <div>
+        <div class="insight-label">AI Insight</div>
+        <div class="insight-text" id="insightText"></div>
+      </div>
+    </div>
+
+    <!-- Welcome State -->
+    <div class="welcome-state" id="welcomeState">
+      <div class="welcome-icon">🌍</div>
+      <h2 class="welcome-title">Explore Climate Intelligence</h2>
+      <p class="welcome-desc">Search for a city to see current conditions compared to historical norms, AI-powered
+        analysis, and actionable climate insights.</p>
+      <div class="quick-cities">
+        <button class="quick-city" data-city="New York">🗽 New York</button>
+        <button class="quick-city" data-city="London">🇬🇧 London</button>
+        <button class="quick-city" data-city="Tokyo">🗼 Tokyo</button>
+        <button class="quick-city" data-city="Sydney">🇦🇺 Sydney</button>
+        <button class="quick-city" data-city="Paris">🇫🇷 Paris</button>
+        <button class="quick-city" data-city="Mumbai">🇮🇳 Mumbai</button>
+        <button class="quick-city" data-city="Dubai">🇦🇪 Dubai</button>
+        <button class="quick-city" data-city="São Paulo">🇧🇷 São Paulo</button>
+      </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div class="dashboard" id="dashboard">
+
+      <!-- Map -->
+      <div class="map-container" id="mapContainer">
+        <div id="weather-map"></div>
+      </div>
+
+      <!-- Current + Historical -->
+      <div class="dashboard-grid">
+
+        <!-- Current Weather -->
+        <div class="card current-weather-card" id="currentCard">
+          <div class="card-header">
+            <span class="card-title">Current Conditions</span>
+            <span class="card-badge badge-normal" id="severityBadge">Normal</span>
+          </div>
+          <div class="current-main">
+            <div class="current-temp-block">
+              <div class="current-temp" id="currentTemp">--°</div>
+              <div class="current-feels" id="currentFeels">Feels like --°</div>
+            </div>
+            <div class="current-condition-block">
+              <div class="current-condition-icon" id="currentIcon">☁️</div>
+              <div class="current-condition-text" id="currentCondition">Loading...</div>
+              <div class="current-location" id="currentLocation"></div>
+            </div>
+          </div>
+          <div class="current-details" id="currentDetails">
+            <!-- Filled by JS -->
+          </div>
+        </div>
+
+        <!-- 24-Hour Hourly Forecast -->
+        <div class="hourly-section" style="grid-column: 1 / -1;">
+          <div class="section-title">🕐 Next 24 Hours</div>
+          <div class="hourly-scroll" id="hourlyScroll">
+            <!-- Filled by JS -->
+          </div>
+        </div>
+
+        <!-- Historical Context -->
+        <div class="card" id="historicalCard">
+          <div class="card-header">
+            <span class="card-title">Historical Context</span>
+            <span class="card-badge badge-normal" id="trendBadge">Stable</span>
+          </div>
+          <div class="anomaly-meter">
+            <div class="anomaly-bar-track">
+              <div class="anomaly-bar-fill" id="anomalyFill" style="width:50%;background:var(--gradient-cool)"></div>
+              <div class="anomaly-marker" id="anomalyMarker" style="left:50%"></div>
+            </div>
+            <div class="anomaly-labels">
+              <span id="anomalyLow">Record Low</span>
+              <span>Historical Average</span>
+              <span id="anomalyHigh">Record High</span>
+            </div>
+          </div>
+          <div class="anomaly-description" id="anomalyDesc">Search a city to see historical context.</div>
+          <div class="historical-stats" id="historicalStats">
+            <!-- Filled by JS -->
+          </div>
+        </div>
+
+      </div>
+
+
+
+      <!-- Forecast -->
+      <div class="forecast-section">
+        <div class="section-title">📅 7-Day Forecast</div>
+        <div class="forecast-scroll" id="forecastScroll">
+          <!-- Filled by JS -->
+        </div>
+      </div>
+
+      <!-- Charts -->
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="card-header">
+            <span class="card-title">Temperature Forecast (48h)</span>
+          </div>
+          <canvas id="tempChart"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="card-header">
+            <span class="card-title">Historical Comparison by Year</span>
+          </div>
+          <canvas id="histChart"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Compare Mode -->
+    <div class="compare-section" id="compareSection">
+      <div class="compare-inputs">
+        <input type="text" class="compare-input" id="compareCity1" placeholder="City 1 — e.g. New York">
+        <span class="compare-vs">VS</span>
+        <input type="text" class="compare-input" id="compareCity2" placeholder="City 2 — e.g. London">
+        <button class="search-btn" id="compareBtn">Compare</button>
+      </div>
+      <div class="compare-grid" id="compareGrid">
+        <!-- Filled by JS -->
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Chat Widget -->
+  <button class="chat-toggle" id="chatToggle" title="Ask WeatherTwin AI">💬</button>
+  <div class="chat-panel" id="chatPanel">
+    <div class="chat-header">
+      <div class="chat-header-title">
+        <span class="chat-status-dot"></span>
+        WeatherTwin AI
+      </div>
+      <button style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.2rem;"
+        id="chatClose">✕</button>
+    </div>
+    <div class="chat-messages" id="chatMessages">
+      <div class="chat-msg assistant">
+        👋 Hi! I'm WeatherTwin AI. Search for a city first, then ask me anything about its weather, climate trends, or
+        what conditions mean for your plans.
+      </div>
+    </div>
+    <div class="chat-typing" id="chatTyping">
+      <div class="typing-dot"></div>
+      <div class="typing-dot"></div>
+      <div class="typing-dot"></div>
+    </div>
+    <div class="chat-input-area">
+      <input type="text" class="chat-input" id="chatInput" placeholder="Ask about weather, trends, anomalies...">
+      <button class="chat-send" id="chatSend" title="Send">➤</button>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/app.js"></script>
+</body>
+
+</html>

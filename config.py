@@ -1,44 +1,15 @@
-"""
-WeatherTwin — Centralized Configuration
-Loads environment variables and exposes project-wide constants.
-"""
-
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-from openai import OpenAI
 
-# ── Paths ──────────────────────────────────────────────
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
-USERS_FILE = BASE_DIR / "auth" / "users.csv"
-CHAT_LOG_DIR = BASE_DIR / "logs" / "chat"
-EVENT_LOG_DIR = BASE_DIR / "logs" / "events"
-LOG_FILE = EVENT_LOG_DIR / "query_log.csv"
-CHAT_CSV = CHAT_LOG_DIR / "chat_log.csv"
-REPORTS_DIR = BASE_DIR / "reports"
+load_dotenv(Path(__file__).parent / "backend" / ".env", override=True)
 
-# Ensure log directories exist
-CHAT_LOG_DIR.mkdir(parents=True, exist_ok=True)
-EVENT_LOG_DIR.mkdir(parents=True, exist_ok=True)
+WEATHERAPI_KEY = os.getenv("WEATHERAPI_KEY", "")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
-# ── Environment ────────────────────────────────────────
-load_dotenv(BASE_DIR / ".env")
+# We import the LLM client directly from the existing backend llm_service 
+# so the agent folder doesn't break, and they share the same Groq instantiation.
+from backend.llm_service import client
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-WEATHERAPI_KEY = os.getenv("WEATHERAPI_KEY")
-OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
-HF_TOKEN = os.getenv("HF_TOKEN")
-SMTP_EMAIL = os.getenv("SMTP_EMAIL")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
-
-# ── LLM ────────────────────────────────────────────────
-MODEL = "llama-3.3-70b-versatile"
-
-client = OpenAI(
-    api_key=GROQ_API_KEY,
-    base_url="https://api.groq.com/openai/v1",
-)
-
-# ── Dev Mode ───────────────────────────────────────────
-DEV_MODE = True
+MODEL = "llama3-70b-8192"
+LOG_FILE = Path(__file__).parent / "backend" / "agent_logs.txt"
