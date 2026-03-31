@@ -11,5 +11,5 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 # so the agent folder doesn't break, and they share the same Groq instantiation.
 from backend.llm_service import client
 
-MODEL = "llama3-70b-8192"
+MODEL = "llama-3.3-70b-versatile"
 LOG_FILE = Path(__file__).parent / "backend" / "agent_logs.txt"

@@ -65,7 +65,7 @@ def send_otp_email(to_email: str, otp: str, purpose: str = "verify your account"
         return {"success": False, "error": str(e)}
 
 
-def send_reminder_confirmation_email(to_email: str, description: str, event_time_str: str, notify_time_str: str, location: str) -> dict:
+def send_reminder_confirmation_email(to_email: str, description: str, event_time_str: str, notify_time_str: str, location: str, weather_insight: str = "") -> dict:
     """Send an email confirming a scheduled reminder."""
     smtp_email = os.getenv("SMTP_EMAIL", "")
     smtp_password = os.getenv("SMTP_PASSWORD", "")
@@ -78,6 +78,15 @@ def send_reminder_confirmation_email(to_email: str, description: str, event_time
         msg["Subject"] = "WeatherTwin — Reminder Scheduled"
         msg["From"] = smtp_email
         msg["To"] = to_email
+
+        insight_html = ""
+        if weather_insight:
+            insight_html = f"""
+            <div style="background:rgba(59,130,246,0.1);border-left:4px solid #3b82f6;border-radius:8px;padding:16px;margin-bottom:24px;font-size:0.95rem;line-height:1.6;">
+                <strong style="color:#f1f5f9;">Event Weather Insight:</strong><br>
+                <span style="color:#e2e8f0;">{weather_insight}</span>
+            </div>
+            """
 
         html = f"""
         <div style="font-family:'Segoe UI',Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#0f172a;border-radius:20px;border:1px solid rgba(148,163,184,0.15);color:#f8fafc;">
@@ -94,6 +103,7 @@ def send_reminder_confirmation_email(to_email: str, description: str, event_time
                 <div style="margin-bottom:8px;"><strong>Event Time:</strong> {event_time_str}</div>
                 <div><strong>Notification Time:</strong> {notify_time_str}</div>
             </div>
+            {insight_html}
             <div style="text-align:center;color:#64748b;font-size:0.75rem;">
                 We'll email you a weather update around {notify_time_str}. Stay tuned!
             </div>
@@ -145,6 +155,53 @@ def send_scheduled_notification_email(to_email: str, description: str, event_tim
             
             <div style="text-align:center;color:#64748b;font-size:0.75rem;">
                 Stay safe! Sent proactively by WeatherTwin.
+            </div>
+        </div>
+        """
+
+        msg.attach(MIMEText(html, "html"))
+
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(smtp_email, smtp_password)
+            server.sendmail(smtp_email, to_email, msg.as_string())
+
+        return {"success": True}
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def send_extreme_weather_alert_email(to_email: str, alerts_html: str) -> dict:
+    """Send an extreme weather alert email to the user.
+    alerts_html should be pre-built HTML rows for each location/alert pair.
+    """
+    smtp_email = os.getenv("SMTP_EMAIL", "")
+    smtp_password = os.getenv("SMTP_PASSWORD", "")
+
+    if not smtp_email or not smtp_password:
+        return {"success": False, "error": "SMTP credentials not configured"}
+
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = "⚠️ WeatherTwin — Extreme Weather Alert"
+        msg["From"] = smtp_email
+        msg["To"] = to_email
+
+        html = f"""
+        <div style="font-family:'Segoe UI',Arial,sans-serif;max-width:550px;margin:0 auto;padding:32px;background:#0f172a;border-radius:20px;border:1px solid rgba(148,163,184,0.15);color:#f8fafc;">
+            <div style="text-align:center;margin-bottom:20px;">
+                <div style="font-size:2.5rem;">⚠️🌪️</div>
+                <div style="font-size:1.5rem;font-weight:700;background:linear-gradient(135deg,#f43f5e,#f97316);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">Extreme Weather Alert</div>
+            </div>
+            <div style="color:#94a3b8;font-size:0.9rem;margin-bottom:20px;text-align:center;">
+                Severe weather conditions have been detected at one or more of your saved locations.
+            </div>
+            <div style="background:rgba(244,63,94,0.1);border-left:4px solid #f43f5e;border-radius:8px;padding:16px;margin-bottom:24px;">
+                {alerts_html}
+            </div>
+            <div style="text-align:center;color:#64748b;font-size:0.75rem;">
+                Stay safe! This alert was sent automatically by WeatherTwin.
             </div>
         </div>
         """

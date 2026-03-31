@@ -213,24 +213,54 @@ async def generate_proactive_insight(city_info: dict, current: dict,
         return ""
 
 
-async def generate_reminder_advisory(description: str, weather_data: dict, city_name: str) -> str:
-    """Generate a specific advisory (Proceed vs Postpone) for a reminder based on weather."""
+async def generate_reminder_advisory(description: str, weather_data: dict, city_name: str, event_time_str: str = "") -> str:
+    """Generate a specific advisory (Proceed vs Postpone) for a reminder based on weather.
+
+    *weather_data* may contain either current observations or forecast data
+    for the event time (preferred).  When forecast data is available the
+    advisory will be specifically about conditions at the event time.
+    """
     context = ""
     if weather_data:
+        source_label = "Forecast" if weather_data.get("source") == "forecast" else "Current"
         context = (
             f"Location: {city_name}\n"
+            f"Data type: {source_label} for event time\n"
             f"Conditions: {weather_data.get('condition', 'Unknown')}\n"
-            f"Temperature: {weather_data.get('temperature', '?')}°C\n"
-            f"Wind: {weather_data.get('wind_speed', '?')} km/h\n"
+            f"Temperature: {weather_data.get('temperature', '?')}°C"
+        )
+        if weather_data.get("feels_like") is not None:
+            context += f" (feels like {weather_data['feels_like']}°C)"
+        context += (
+            f"\nWind: {weather_data.get('wind_speed', '?')} km/h\n"
             f"Precipitation: {weather_data.get('precipitation', 0)} mm\n"
         )
+        if weather_data.get("precip_probability") is not None:
+            context += f"Precipitation probability: {weather_data['precip_probability']}%\n"
+        if weather_data.get("humidity") is not None:
+            context += f"Humidity: {weather_data['humidity']}%\n"
 
+        # Include daily summary when available
+        ds = weather_data.get("daily_summary")
+        if ds:
+            context += (
+                f"\nDaily summary ({ds.get('date', '')}):\n"
+                f"  High/Low: {ds.get('temp_max', '?')}°C / {ds.get('temp_min', '?')}°C\n"
+                f"  Total precipitation: {ds.get('precipitation', 0)} mm "
+                f"({ds.get('precip_probability', 0)}% chance)\n"
+                f"  Max wind: {ds.get('wind_max', '?')} km/h\n"
+                f"  UV index: {ds.get('uv_index', 'N/A')}\n"
+                f"  Condition: {ds.get('condition', 'Unknown')}\n"
+            )
+
+    time_label = f" at {event_time_str}" if event_time_str else ""
     prompt = (
-        f"The user has a scheduled task: '{description}' in {city_name}.\n"
-        f"Current weather context:\n{context}\n\n"
-        "Based on this, provide a concise advisory (2-3 sentences). "
-        "Explicitly recommend if they should 'Proceed' with the task or 'Postpone' it due to the weather. "
-        "Be specific about why (e.g., 'The high winds might make this activity difficult'). "
+        f"The user has a scheduled event: '{description}' in {city_name}{time_label}.\n"
+        f"Weather context for the event time:\n{context}\n\n"
+        "Based on this, provide a concise advisory (3-5 sentences). "
+        "1. Summarise the expected weather at event time.\n"
+        "2. Explicitly recommend 'Proceed' or 'Postpone' with a clear reason.\n"
+        "3. Offer one practical suggestion (e.g. bring an umbrella, wear sunscreen, dress warm).\n"
         "Do not use markdown formatting. Be direct and helpful."
     )
 
@@ -242,7 +272,7 @@ async def generate_reminder_advisory(description: str, weather_data: dict, city_
                 {"role": "user", "content": prompt},
             ],
             temperature=0.6,
-            max_tokens=150,
+            max_tokens=200,
         )
         return response.choices[0].message.content.strip()
     except Exception:

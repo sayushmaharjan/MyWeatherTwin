@@ -89,6 +89,26 @@ def init_tables():
             )
         """)
         
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS weathertwin_chat_sessions (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES weathertwin_users(id) ON DELETE CASCADE,
+                title VARCHAR(255) NOT NULL DEFAULT 'New Chat',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS weathertwin_chat_messages (
+                id SERIAL PRIMARY KEY,
+                session_id INTEGER REFERENCES weathertwin_chat_sessions(id) ON DELETE CASCADE,
+                role VARCHAR(20) NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
         # Drop the now-unused profiles table if it exists
         cur.execute("DROP TABLE IF EXISTS weathertwin_profiles")
         
@@ -596,3 +616,142 @@ def mark_reminder_sent(reminder_id: int) -> dict:
     finally:
         conn.close()
 
+
+def delete_expired_reminders() -> dict:
+    """Delete all reminders where the event time has passed."""
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM weathertwin_reminders WHERE event_datetime < CURRENT_TIMESTAMP")
+        conn.commit()
+        return {"success": True}
+    except Exception as e:
+        conn.rollback()
+        return {"success": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+# ─── CHAT SESSIONS ──────────────────────────────────
+
+def create_chat_session(user_id: int, title: str = "New Chat") -> dict:
+    """Create a new chat session and return its id."""
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO weathertwin_chat_sessions (user_id, title) VALUES (%s, %s) RETURNING id",
+            (user_id, title[:255]),
+        )
+        session_id = cur.fetchone()[0]
+        conn.commit()
+        return {"success": True, "session_id": session_id}
+    except Exception as e:
+        conn.rollback()
+        return {"success": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def get_chat_sessions(user_id: int) -> dict:
+    """Return all chat sessions for a user, newest first."""
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, title, created_at, updated_at
+            FROM weathertwin_chat_sessions
+            WHERE user_id = %s
+            ORDER BY updated_at DESC
+            """,
+            (user_id,),
+        )
+        rows = cur.fetchall()
+        sessions = [
+            {"id": r[0], "title": r[1], "created_at": r[2], "updated_at": r[3]}
+            for r in rows
+        ]
+        return {"success": True, "sessions": sessions}
+    except Exception as e:
+        return {"success": False, "error": str(e), "sessions": []}
+    finally:
+        conn.close()
+
+
+def get_chat_messages(session_id: int) -> dict:
+    """Return all messages for a chat session, in order."""
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT role, content
+            FROM weathertwin_chat_messages
+            WHERE session_id = %s
+            ORDER BY created_at ASC
+            """,
+            (session_id,),
+        )
+        rows = cur.fetchall()
+        messages = [{"role": r[0], "content": r[1]} for r in rows]
+        return {"success": True, "messages": messages}
+    except Exception as e:
+        return {"success": False, "error": str(e), "messages": []}
+    finally:
+        conn.close()
+
+
+def add_chat_message(session_id: int, role: str, content: str) -> dict:
+    """Add a message to a chat session and bump updated_at."""
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO weathertwin_chat_messages (session_id, role, content) VALUES (%s, %s, %s)",
+            (session_id, role, content),
+        )
+        cur.execute(
+            "UPDATE weathertwin_chat_sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = %s",
+            (session_id,),
+        )
+        conn.commit()
+        return {"success": True}
+    except Exception as e:
+        conn.rollback()
+        return {"success": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def delete_chat_session(session_id: int) -> dict:
+    """Delete a chat session and all its messages (cascade)."""
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM weathertwin_chat_sessions WHERE id = %s", (session_id,))
+        conn.commit()
+        return {"success": True}
+    except Exception as e:
+        conn.rollback()
+        return {"success": False, "error": str(e)}
+    finally:
+        conn.close()
+
+
+def update_chat_session_title(session_id: int, title: str) -> dict:
+    """Update the title of a chat session."""
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE weathertwin_chat_sessions SET title = %s WHERE id = %s",
+            (title[:255], session_id),
+        )
+        conn.commit()
+        return {"success": True}
+    except Exception as e:
+        conn.rollback()
+        return {"success": False, "error": str(e)}
+    finally:
+        conn.close()

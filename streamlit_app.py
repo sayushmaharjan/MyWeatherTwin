@@ -18,6 +18,7 @@ from streamlit_js_eval import get_geolocation
 
 import datetime
 import uuid
+import base64
 import threading
 import time
 
@@ -61,19 +62,27 @@ def run_async(coro):
 # ─── Data Fetching Helpers ───────────────────────
 def fetch_weather_by_city(city_name):
     """Bridge to weather_service."""
-    geo = run_async(ws.geocode_city(city_name))
-    if not geo:
-        st.error(f"City '{city_name}' not found")
+    try:
+        geo = run_async(ws.geocode_city(city_name))
+        if not geo:
+            st.error(f"City '{city_name}' not found")
+            return None
+        return run_async(ws.fetch_full_weather_data(geo, os.getenv("GROQ_API_KEY", ""), st.session_state.get("user_profile")))
+    except Exception as e:
+        st.error(f"⚠️ Weather Service Error: Could not connect to API ({type(e).__name__}). Please check your internet connection.")
         return None
-    return run_async(ws.fetch_full_weather_data(geo, os.getenv("GROQ_API_KEY", ""), st.session_state.get("user_profile")))
 
 def fetch_weather_by_coords(lat, lon):
     """Bridge to weather_service."""
-    geo = run_async(ws.reverse_geocode(lat, lon))
-    if not geo:
-        geo = {"name": f"{lat:.2f}°, {lon:.2f}°", "country": "", "admin1": "",
-               "latitude": lat, "longitude": lon, "timezone": "auto", "population": None}
-    return run_async(ws.fetch_full_weather_data(geo, os.getenv("GROQ_API_KEY", ""), st.session_state.get("user_profile")))
+    try:
+        geo = run_async(ws.reverse_geocode(lat, lon))
+        if not geo:
+            geo = {"name": f"{lat:.2f}°, {lon:.2f}°", "country": "", "admin1": "",
+                   "latitude": lat, "longitude": lon, "timezone": "auto", "population": None}
+        return run_async(ws.fetch_full_weather_data(geo, os.getenv("GROQ_API_KEY", ""), st.session_state.get("user_profile")))
+    except Exception as e:
+        st.error(f"⚠️ Weather Service Error: Could not connect to API ({type(e).__name__}). Please check your internet connection.")
+        return None
 
 
 
@@ -158,6 +167,21 @@ st.markdown("""
 /* Hide default streamlit elements */
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
+
+/* Remove excess top padding */
+.block-container { padding-top: 1rem !important; }
+section[data-testid="stSidebar"] {
+    background-color: #0d121c !important; /* Slightly darker than gradient */
+    border-right: 1px solid rgba(148,163,184,0.06) !important;
+}
+section[data-testid="stSidebar"] > div:first-child { padding-top: 1rem; }
+
+/* Streamlit header — keep visible for sidebar toggle */
+header[data-testid="stHeader"] {
+    background: rgba(10,14,26,0.85) !important;
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(148,163,184,0.08);
+}
 
 /* Custom header */
 .wt-header {
@@ -303,21 +327,31 @@ footer {visibility: hidden;}
 [data-testid="stMetricLabel"] { color: #64748b !important; }
 [data-testid="stMetricValue"] { color: #f1f5f9 !important; }
 
-/* Tab styling */
+/* Tab styling — subtle fill variant */
 .stTabs [data-baseweb="tab-list"] {
-    gap: 2px;
-    background: rgba(255,255,255,0.04);
-    border-radius: 12px;
-    padding: 3px;
+    gap: 4px;
+    background: transparent;
+    border-bottom: 1px solid rgba(148,163,184,0.1);
+    padding: 0 0 4px 0;
+    border-radius: 0;
 }
 .stTabs [data-baseweb="tab"] {
-    border-radius: 10px;
+    border-radius: 8px;
     color: #64748b;
     font-weight: 500;
+    font-size: 0.82rem;
+    padding: 8px 16px;
+    transition: color 0.2s, background 0.2s;
+    border-bottom: none;
+}
+.stTabs [data-baseweb="tab"]:hover {
+    color: #cbd5e1;
+    background: rgba(255,255,255,0.04);
 }
 .stTabs [aria-selected="true"] {
-    background: linear-gradient(135deg, #3b82f6, #8b5cf6) !important;
-    color: white !important;
+    background: rgba(59,130,246,0.12) !important;
+    color: #60a5fa !important;
+    font-weight: 600;
 }
 
 /* Chat styling */
@@ -333,61 +367,252 @@ iframe {
     border: 1px solid rgba(148,163,184,0.1) !important;
 }
 
-/* Button styling */
-.stButton > button {
+/* Primary buttons (blue/purple gradient) */
+.stButton > button[data-testid="baseButton-primary"] {
     background: linear-gradient(135deg, #3b82f6, #8b5cf6) !important;
     border: none !important;
     color: white !important;
     font-weight: 600 !important;
-    border-radius: 20px !important;
-    padding: 6px 16px !important;
+    border-radius: 10px !important;
+    padding: 8px 20px !important;
+    font-size: 0.88rem !important;
+    letter-spacing: 0.2px !important;
+    transition: opacity 0.18s, box-shadow 0.18s, transform 0.12s !important;
 }
-.stButton > button:hover {
-    opacity: 0.9;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+.stButton > button[data-testid="baseButton-primary"]:hover {
+    opacity: 0.92 !important;
+    box-shadow: 0 6px 24px rgba(59,130,246,0.35) !important;
+    transform: translateY(-1px) !important;
+}
+.stButton > button[data-testid="baseButton-primary"]:active {
+    transform: translateY(0px) !important;
 }
 
-/* Text input */
-.stTextInput input {
-    background: rgba(17,24,39,0.7) !important;
-    border: 1px solid rgba(148,163,184,0.1) !important;
-    border-radius: 24px !important;
+/* Secondary/default buttons (white glass) */
+.stButton > button[data-testid="baseButton-secondary"] {
+    background: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
     color: #f1f5f9 !important;
+    font-weight: 500 !important;
+    border-radius: 10px !important;
+    padding: 8px 20px !important;
+    font-size: 0.88rem !important;
+    transition: all 0.2s !important;
+}
+.stButton > button[data-testid="baseButton-secondary"]:hover {
+    background: rgba(255, 255, 255, 0.12) !important;
+    border-color: rgba(255, 255, 255, 0.25) !important;
+    color: #ffffff !important;
+}
+.stButton > button[data-testid="baseButton-secondary"]:active {
+    background: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Favorite button specific color override */
+button[title="Remove from favorites"], button[title="Remove from favorites"] p, button[title="Remove from favorites"] span {
+    color: #ef4444 !important;
+}
+
+/* Form submit buttons (always primary) */
+.stFormSubmitButton > button {
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6) !important;
+    border: none !important;
+    color: white !important;
+    font-weight: 600 !important;
+    border-radius: 10px !important;
     padding: 10px 20px !important;
+    font-size: 0.9rem !important;
+    letter-spacing: 0.2px !important;
+    transition: opacity 0.18s, box-shadow 0.18s, transform 0.12s !important;
+    width: 100% !important;
+}
+.stFormSubmitButton > button:hover {
+    opacity: 0.92 !important;
+    box-shadow: 0 6px 24px rgba(59,130,246,0.35) !important;
+    transform: translateY(-1px) !important;
+}
+
+/* Text input — flat 8px radius, NOT rounded */
+.stTextInput input {
+    background: rgba(15,23,42,0.7) !important;
+    border: 1px solid rgba(148,163,184,0.12) !important;
+    border-radius: 8px !important;
+    color: #f1f5f9 !important;
+    padding: 10px 14px !important;
+    font-size: 0.88rem !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
 }
 .stTextInput input:focus {
-    border-color: #3b82f6 !important;
-    box-shadow: 0 0 30px rgba(59,130,246,0.15) !important;
+    border-color: rgba(59,130,246,0.5) !important;
+    box-shadow: 0 0 0 3px rgba(59,130,246,0.1) !important;
+    outline: none !important;
 }
-/* Auth page styling */
-.auth-container {
+.stTextInput input::placeholder {
+    color: #94a3b8 !important; /* Made significantly brighter */
+    opacity: 0.8 !important;
+}
+/* Auth page — full-screen centered card */
+.auth-page-bg {
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(59,130,246,0.18) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 40% at 80% 80%, rgba(139,92,246,0.12) 0%, transparent 55%),
+                #070b14;
+    z-index: 0;
+}
+.auth-outer {
+    display: flex;
+    min-height: 100vh;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+.auth-card {
+    width: 100%;
     max-width: 440px;
-    margin: 60px auto;
-    padding: 40px 36px;
-    background: rgba(17, 24, 39, 0.8);
-    border: 1px solid rgba(148,163,184,0.15);
-    border-radius: 24px;
-    backdrop-filter: blur(20px);
-    box-shadow: 0 8px 40px rgba(0,0,0,0.4);
+    background: rgba(13, 19, 35, 0.85);
+    border: 1px solid rgba(148,163,184,0.1);
+    border-radius: 18px;
+    padding: 40px 36px 36px 36px;
+    backdrop-filter: blur(28px);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.03) inset,
+                0 24px 64px rgba(0,0,0,0.6),
+                0 0 80px rgba(59,130,246,0.06);
 }
-.auth-title {
-    font-size: 1.8rem; font-weight: 800;
-    text-align: center; margin-bottom: 4px;
+.auth-logo {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 28px;
+}
+.auth-logo-icon {
+    width: 52px; height: 52px;
+    border-radius: 14px;
     background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.6rem;
+    box-shadow: 0 8px 20px rgba(59,130,246,0.35);
+    margin-bottom: 14px;
 }
-.auth-subtitle {
-    font-size: 0.85rem; color: #64748b;
-    text-align: center; margin-bottom: 28px;
+.auth-headline {
+    font-size: 1.65rem;
+    font-weight: 700;
+    color: #f8fafc;
+    text-align: center;
+    margin: 0 0 6px 0;
+    letter-spacing: -0.3px;
 }
-.auth-switch {
-    text-align: center; margin-top: 20px;
-    font-size: 0.85rem; color: #64748b;
+.auth-subline {
+    font-size: 0.83rem;
+    color: #64748b;
+    text-align: center;
+    margin: 0;
 }
-.auth-switch a {
-    color: #3b82f6; text-decoration: none; font-weight: 600;
+.auth-subline a {
+    color: #60a5fa;
+    text-decoration: none;
+    font-weight: 500;
     cursor: pointer;
 }
+.auth-subline a:hover { text-decoration: underline; }
+
+
+/* Field labels */
+.auth-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #94a3b8;
+    margin-bottom: 5px;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+}
+
+/* Divider */
+.auth-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 18px 0;
+    color: #334155;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+}
+.auth-divider::before, .auth-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(148,163,184,0.1);
+}
+
+/* Legacy classes kept for compat */
+.login-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 16px 0;
+    color: #475569;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+.login-divider::before, .login-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(148,163,184,0.12);
+}
+.login-feature-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 24px;
+}
+.login-feature-item {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(148,163,184,0.06);
+    border-radius: 10px;
+    padding: 16px 8px;
+    text-align: center;
+    transition: border-color 0.2s;
+}
+.login-feature-item:hover { border-color: rgba(59,130,246,0.2); }
+.login-feature-item .feat-icon { font-size: 1.5rem; margin-bottom: 6px; }
+.login-feature-item .feat-label { font-size: 0.7rem; color: #94a3b8; font-weight: 500; }
+.login-brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 40px 20px;
+}
+.login-brand-title {
+    font-size: 2.8rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin: 12px 0 8px 0;
+}
+.login-brand-desc {
+    font-size: 0.95rem;
+    color: #94a3b8;
+    text-align: center;
+    line-height: 1.6;
+    max-width: 320px;
+}
+.login-card {
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(148,163,184,0.08);
+    border-radius: 18px;
+    padding: 36px 32px;
+    backdrop-filter: blur(24px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
+}
+.login-card-header { text-align: center; margin-bottom: 28px; }
+.login-card-header h2 { font-size: 1.6rem; font-weight: 700; color: #f8fafc; margin: 0 0 6px 0; }
+.login-card-header p { font-size: 0.85rem; color: #64748b; margin: 0; }
 /* Reminder card styling */
 .wt-reminder-card {
     background: rgba(255,255,255,0.03);
@@ -428,104 +653,143 @@ if not st.session_state.logged_in and not st.session_state.checked_cookie:
 
 
 def _show_auth_page():
-    """Auth gateway — login on top-right, register opens separately."""
+    """Auth gateway — premium centered card design."""
 
-    # ── Logo bar ──
-    logo_col, form_col = st.columns([3, 5])
+    # ── Full-screen background glow (CSS overlay) ──
+    st.markdown("""
+    <style>
+    .stApp > div:first-child {
+        background:
+            radial-gradient(ellipse 90% 55% at 50% -5%, rgba(59,130,246,0.2) 0%, transparent 65%),
+            radial-gradient(ellipse 55% 35% at 85% 85%, rgba(139,92,246,0.14) 0%, transparent 60%),
+            radial-gradient(ellipse 40% 30% at 10% 70%, rgba(6,182,212,0.08) 0%, transparent 55%),
+            #070c18 !important;
+    }
+    /* hide the default streamlit top-bar padding for auth page */
+    section.main > div { padding-top: 0 !important; }
+    </style>
+    """, unsafe_allow_html=True)
 
-    with logo_col:
-        st.markdown("""
-        <div style="margin-top:60px;">
-            <div style="font-size:4rem;">🌤️</div>
-            <div style="font-size:2.2rem;font-weight:800;background:linear-gradient(135deg,#3b82f6,#8b5cf6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-top:8px;">WeatherTwin</div>
-            <div style="font-size:1rem;color:#94a3b8;margin-top:8px;line-height:1.5;">AI-powered climate intelligence.<br>Real-time weather, forecasts & insights.</div>
-            <div style="margin-top:24px;display:flex;gap:16px;">
-                <div style="display:flex;align-items:center;gap:6px;color:#64748b;font-size:0.8rem;">🌡️ Live data</div>
-                <div style="display:flex;align-items:center;gap:6px;color:#64748b;font-size:0.8rem;">🗺️ Maps</div>
-                <div style="display:flex;align-items:center;gap:6px;color:#64748b;font-size:0.8rem;">🤖 AI Insights</div>
+    # ── Track active login tab in session state ──
+    if "login_tab" not in st.session_state:
+        st.session_state.login_tab = "email"  # "email" or "otp"
+
+    # ─────────────────────────────────────────────────────────
+    #  LOGIN VIEW
+    # ─────────────────────────────────────────────────────────
+    if st.session_state.auth_view == "login":
+
+        # Center the card with columns
+        _, center_col, _ = st.columns([1, 2, 1])
+        with center_col:
+
+            # ── Logo ──
+            st.markdown("""
+            <div class="auth-logo">
+                <div class="auth-logo-icon">🌤️</div>
+                <h1 class="auth-headline">Welcome back</h1>
+                <p class="auth-subline">First time here? <span id="go-register" style="color:#60a5fa;font-weight:500;cursor:pointer;">Sign up</span></p>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
-    with form_col:
-        # ═══ LOGIN VIEW ═══
-        if st.session_state.auth_view == "login":
-            st.markdown('<div class="auth-title" style="font-size:1.5rem;margin-top:40px;">🔐 Log In</div>', unsafe_allow_html=True)
-            st.markdown('<div class="auth-subtitle">Welcome back to WeatherTwin</div>', unsafe_allow_html=True)
+            # Tab control via horizontal radio
+            chosen_tab = st.radio(
+                "Login Method",
+                ["Email & Password", "Username & OTP"],
+                index=0 if st.session_state.login_tab == "email" else 1,
+                horizontal=True,
+                key="login_mode",
+                label_visibility="collapsed"
+            )
+            if chosen_tab == "Email & Password":
+                st.session_state.login_tab = "email"
+            else:
+                st.session_state.login_tab = "otp"
 
-            login_mode = st.radio("Login method", ["📧 Email + Password", "👤 Username + OTP"], horizontal=True, key="login_mode", label_visibility="collapsed")
-
-            if login_mode == "📧 Email + Password":
+            # ── TAB 1: Email + Password ──
+            if st.session_state.login_tab == "email":
                 with st.form("login_email_form", clear_on_submit=False):
-                    login_email = st.text_input("Email", placeholder="your@email.com", key="login_email")
-                    login_password = st.text_input("Password", type="password", placeholder="Your password", key="login_pass")
-                    remember_me = st.checkbox("Remember me for a week", value=False)
-                    login_submit = st.form_submit_button("🔐 Log In", use_container_width=True)
+                    st.markdown('<div class="auth-label">Email Address</div>', unsafe_allow_html=True)
+                    login_email = st.text_input(
+                        "email_hidden",
+                        placeholder="you@example.com",
+                        key="login_email",
+                        label_visibility="collapsed"
+                    )
+                    st.markdown('<div class="auth-label" style="margin-top:12px;">Password</div>', unsafe_allow_html=True)
+                    login_password = st.text_input(
+                        "pass_hidden",
+                        type="password",
+                        placeholder="Enter your password",
+                        key="login_pass",
+                        label_visibility="collapsed"
+                    )
+                    remember_me = st.checkbox("Keep me signed in for a week", value=False)
+
+                    # Inline email validation hint
+                    if login_email and "@" not in login_email:
+                        st.markdown('<div style="font-size:0.75rem;color:#f87171;margin-top:-8px;margin-bottom:4px;">Please enter a valid email address.</div>', unsafe_allow_html=True)
+
+                    login_submit = st.form_submit_button("Sign In", use_container_width=True)
 
                     if login_submit:
                         if not login_email or not login_password:
-                            st.error("Please fill in all fields")
+                            st.error("Please fill in both fields.")
+                        elif "@" not in login_email:
+                            st.error("Please enter a valid email address.")
                         else:
                             with st.spinner("Authenticating..."):
-                                # Bypass Check: Does this email have an active token?
                                 token_check = db.check_user_has_active_token(login_email.strip().lower())
-                                if token_check["success"]:
-                                    st.success("Welcome back! Active session found.")
-                                    result = token_check
-                                else:
-                                    # Fallback: Verify Password
-                                    result = db.authenticate_by_password(login_email.strip().lower(), login_password)
-                                
+                                result = token_check if token_check["success"] else db.authenticate_by_password(login_email.strip().lower(), login_password)
+
                             if result["success"]:
                                 st.session_state.logged_in = True
                                 st.session_state.user_info = result["user"]
-                                
-                                # Set Remember Me token if checked
                                 if remember_me:
                                     token = str(uuid.uuid4())
                                     import datetime as dt
                                     expires = dt.datetime.now() + dt.timedelta(days=7)
                                     db.set_remember_token(result["user"]["id"], token, expires)
                                     cookie_manager.set("weathertwin_remember", token, expires_at=expires)
-
                                 st.rerun()
                             else:
-                                st.error(f"❌ {result['error']}")
+                                st.error(result['error'])
 
+            # ── TAB 2: Username + OTP ──
             else:
-                # OTP Login — Step 1: enter username, send OTP
                 if not st.session_state.login_otp_step:
                     with st.form("login_otp_form1", clear_on_submit=False):
-                        otp_username = st.text_input("Username", placeholder="Enter your username", key="otp_login_user")
-                        remember_me = st.checkbox("Remember me for a week", value=False, key="otp_remember_1")
-                        send_otp_btn = st.form_submit_button("📩 Send OTP to my email", use_container_width=True)
+                        st.markdown('<div class="auth-label">Username</div>', unsafe_allow_html=True)
+                        otp_username = st.text_input(
+                            "uname_hidden",
+                            placeholder="Enter your username",
+                            value="Harsha",
+                            key="otp_login_user",
+                            label_visibility="collapsed"
+                        )
+                        remember_me = st.checkbox("Keep me signed in for a week", value=False, key="otp_remember_1")
+                        send_otp_btn = st.form_submit_button("Send OTP to my email", use_container_width=True)
 
                         if send_otp_btn:
                             if not otp_username:
-                                st.error("Please enter your username")
+                                st.error("Please enter your username.")
                             else:
                                 with st.spinner("Looking up account..."):
-                                    # Bypass Check: Does this username have an active token?
                                     token_check = db.check_user_has_active_token(otp_username.strip())
                                     if token_check["success"]:
-                                        st.success("Welcome back! Active session found.")
                                         st.session_state.logged_in = True
                                         st.session_state.user_info = token_check["user"]
-                                        
-                                        # Refresh token if requested
                                         if remember_me:
                                             token = str(uuid.uuid4())
                                             import datetime as dt
                                             expires = dt.datetime.now() + dt.timedelta(days=7)
                                             db.set_remember_token(token_check["user"]["id"], token, expires)
                                             cookie_manager.set("weathertwin_remember", token, expires_at=expires)
-                                            
                                         st.rerun()
                                         st.stop()
-                                    
                                     lookup = db.get_user_by_email_or_username(otp_username.strip())
                                 if not lookup["success"]:
-                                    st.error(f"❌ {lookup['error']}")
+                                    st.error(lookup['error'])
                                 else:
                                     user_email = lookup["user"]["email"]
                                     otp_code = em.generate_otp()
@@ -542,72 +806,95 @@ def _show_auth_page():
                                         st.rerun()
                                     else:
                                         st.error(f"Failed to send OTP: {send_result['error']}")
-
                 else:
-                    # OTP Login — Step 2: enter OTP code
-                    st.info(f"📩 OTP sent! Check your email.")
+                    # OTP Step 2 — enter code
+                    masked_display = st.session_state.otp_email[:3] + "***" + st.session_state.otp_email[st.session_state.otp_email.index("@"):]
+                    st.info(f"OTP sent to {masked_display} — check your inbox.")
                     with st.form("login_otp_form2", clear_on_submit=False):
-                        otp_input = st.text_input("Enter 6-digit OTP", placeholder="123456", key="otp_login_code", max_chars=6)
-                        verify_btn = st.form_submit_button("✅ Verify & Log In", use_container_width=True)
+                        st.markdown('<div class="auth-label">One-Time Password</div>', unsafe_allow_html=True)
+                        otp_input = st.text_input(
+                            "otp_hidden",
+                            placeholder="6-digit code",
+                            key="otp_login_code",
+                            max_chars=6,
+                            label_visibility="collapsed"
+                        )
+                        verify_btn = st.form_submit_button("Verify & Sign In", use_container_width=True)
 
                         if verify_btn:
                             if not otp_input or len(otp_input) != 6:
-                                st.error("Please enter the 6-digit OTP")
+                                st.error("Please enter the 6-digit OTP.")
                             else:
                                 with st.spinner("Verifying..."):
                                     result = db.verify_otp(st.session_state.otp_email, otp_input.strip(), "login")
                                 if result["success"]:
                                     st.session_state.logged_in = True
                                     st.session_state.user_info = st.session_state.login_otp_user
-                                    
-                                    # Handle Remember Me for OTP flow
                                     if st.session_state.get("otp_wants_remember"):
                                         token = str(uuid.uuid4())
                                         import datetime as dt
                                         expires = dt.datetime.now() + dt.timedelta(days=7)
                                         db.set_remember_token(st.session_state.user_info["id"], token, expires)
                                         cookie_manager.set("weathertwin_remember", token, expires_at=expires)
-
                                     st.session_state.login_otp_step = False
                                     st.rerun()
                                 else:
-                                    st.error(f"❌ {result['error']}")
+                                    st.error(result['error'])
 
-                    if st.button("← Back", key="otp_login_back"):
+                    if st.button(":material/arrow_back: Back", key="otp_login_back"):
                         st.session_state.login_otp_step = False
                         st.rerun()
 
-            # Switch to register
-            st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-            if st.button("New user? Register →", key="go_to_register"):
+            # ── Register CTA ──
+            st.markdown('<div class="auth-divider">or</div>', unsafe_allow_html=True)
+            if st.button("Create a new account", key="go_to_register", use_container_width=True):
                 st.session_state.auth_view = "register"
                 st.rerun()
 
-        # ═══ REGISTER VIEW — Step 1: fill details ═══
-        elif st.session_state.auth_view == "register":
-            st.markdown('<div class="auth-title" style="font-size:1.5rem;margin-top:40px;">🚀 Create Account</div>', unsafe_allow_html=True)
-            st.markdown('<div class="auth-subtitle">Join WeatherTwin</div>', unsafe_allow_html=True)
+    # ─────────────────────────────────────────────────────────
+    #  REGISTER VIEW
+    # ─────────────────────────────────────────────────────────
+    elif st.session_state.auth_view == "register":
+
+        _, center_col, _ = st.columns([1, 2, 1])
+        with center_col:
+
+            st.markdown("""
+            <div class="auth-logo">
+                <div class="auth-logo-icon">🌤️</div>
+                <h1 class="auth-headline">Create Account</h1>
+                <p class="auth-subline">Already have one? <span style="color:#60a5fa;font-weight:500;">Sign in</span></p>
+            </div>
+            """, unsafe_allow_html=True)
 
             with st.form("register_form", clear_on_submit=False):
-                reg_username = st.text_input("Username", placeholder="Choose a username", key="reg_user")
-                reg_email = st.text_input("Email", placeholder="your@email.com", key="reg_email")
-                reg_password = st.text_input("Password", type="password", placeholder="Min 6 characters", key="reg_pass")
-                reg_confirm = st.text_input("Confirm Password", type="password", placeholder="Repeat password", key="reg_confirm")
-                reg_submit = st.form_submit_button("📩 Send OTP to verify email", use_container_width=True)
+                st.markdown('<div class="auth-label">Username</div>', unsafe_allow_html=True)
+                reg_username = st.text_input("un", placeholder="Choose a username", key="reg_user", label_visibility="collapsed")
+
+                st.markdown('<div class="auth-label" style="margin-top:12px;">Email Address</div>', unsafe_allow_html=True)
+                reg_email = st.text_input("em", placeholder="you@example.com", key="reg_email", label_visibility="collapsed")
+
+                st.markdown('<div class="auth-label" style="margin-top:12px;">Password</div>', unsafe_allow_html=True)
+                reg_password = st.text_input("pw", type="password", placeholder="Min 6 characters", key="reg_pass", label_visibility="collapsed")
+
+                st.markdown('<div class="auth-label" style="margin-top:12px;">Confirm Password</div>', unsafe_allow_html=True)
+                reg_confirm = st.text_input("cp", type="password", placeholder="Repeat your password", key="reg_confirm", label_visibility="collapsed")
+
+                reg_submit = st.form_submit_button("Send OTP to verify email", use_container_width=True)
 
                 if reg_submit:
                     if not reg_username or not reg_email or not reg_password:
-                        st.error("Please fill in all fields")
+                        st.error("Please fill in all fields.")
                     elif len(reg_password) < 6:
-                        st.error("Password must be at least 6 characters")
+                        st.error("Password must be at least 6 characters.")
                     elif reg_password != reg_confirm:
-                        st.error("Passwords do not match")
+                        st.error("Passwords do not match.")
                     elif "@" not in reg_email or "." not in reg_email:
-                        st.error("Please enter a valid email")
+                        st.error("Please enter a valid email address.")
                     else:
                         otp_code = em.generate_otp()
                         with st.spinner("Sending verification OTP..."):
-                            db_result = db.store_otp(reg_email.strip().lower(), otp_code, "register")
+                            db.store_otp(reg_email.strip().lower(), otp_code, "register")
                             send_result = em.send_otp_email(reg_email.strip().lower(), otp_code, "verify your account")
                         if send_result["success"]:
                             st.session_state.otp_reg_data = {
@@ -621,23 +908,35 @@ def _show_auth_page():
                         else:
                             st.error(f"Failed to send OTP: {send_result['error']}")
 
-            if st.button("← Back to Login", key="go_to_login"):
+            if st.button(":material/arrow_back: Back to Sign In", key="go_to_login"):
                 st.session_state.auth_view = "login"
                 st.rerun()
 
-        # ═══ REGISTER VIEW — Step 2: verify OTP ═══
-        elif st.session_state.auth_view == "register_otp":
-            st.markdown('<div class="auth-title" style="font-size:1.5rem;margin-top:40px;">📩 Verify Email</div>', unsafe_allow_html=True)
+    # ─────────────────────────────────────────────────────────
+    #  REGISTER OTP VERIFY VIEW
+    # ─────────────────────────────────────────────────────────
+    elif st.session_state.auth_view == "register_otp":
+
+        _, center_col, _ = st.columns([1, 2, 1])
+        with center_col:
+
             masked = st.session_state.otp_email[:3] + "***" + st.session_state.otp_email[st.session_state.otp_email.index("@"):]
-            st.markdown(f'<div class="auth-subtitle">Enter the OTP sent to {masked}</div>', unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="auth-logo">
+                <div class="auth-logo-icon">📧</div>
+                <h1 class="auth-headline">Verify Email</h1>
+                <p class="auth-subline">We sent a 6-digit code to<br><strong style="color:#f1f5f9;">{masked}</strong></p>
+            </div>
+            """, unsafe_allow_html=True)
 
             with st.form("register_otp_form", clear_on_submit=False):
-                otp_input = st.text_input("6-digit OTP", placeholder="123456", key="reg_otp_code", max_chars=6)
-                verify_btn = st.form_submit_button("✅ Verify & Create Account", use_container_width=True)
+                st.markdown('<div class="auth-label">One-Time Password</div>', unsafe_allow_html=True)
+                otp_input = st.text_input("otp_r", placeholder="Enter 6-digit code", key="reg_otp_code", max_chars=6, label_visibility="collapsed")
+                verify_btn = st.form_submit_button("Verify & Create Account", use_container_width=True)
 
                 if verify_btn:
                     if not otp_input or len(otp_input) != 6:
-                        st.error("Please enter the 6-digit OTP")
+                        st.error("Please enter the 6-digit OTP.")
                     else:
                         with st.spinner("Verifying OTP..."):
                             otp_result = db.verify_otp(st.session_state.otp_email, otp_input.strip(), "register")
@@ -646,16 +945,16 @@ def _show_auth_page():
                             with st.spinner("Creating your account..."):
                                 reg_result = db.register_user(data["username"], data["email"], data["password"])
                             if reg_result["success"]:
-                                st.success("✅ Account created! You can now log in.")
+                                st.success("Account created! You can now sign in.")
                                 st.session_state.auth_view = "login"
                                 st.session_state.otp_reg_data = None
                                 st.rerun()
                             else:
                                 st.error(f"Registration failed: {reg_result['error']}")
                         else:
-                            st.error(f"❌ {otp_result['error']}")
+                            st.error(otp_result['error'])
 
-            if st.button("← Back to Register", key="go_back_register"):
+            if st.button(":material/arrow_back: Back", key="go_back_register"):
                 st.session_state.auth_view = "register"
                 st.rerun()
 
@@ -665,12 +964,21 @@ if not st.session_state.logged_in:
     _show_auth_page()
     st.stop()
 
-# ─── Sidebar Profile ─────────────────────────────
+# ─── Sidebar ─────────────────────────────────────
 with st.sidebar:
-    st.markdown("### 👤 My Profile")
-    st.markdown(f"**{st.session_state.user_info['username']}**")
-    st.markdown(f"_{st.session_state.user_info['email']}_")
-    st.divider()
+    # ── Compact User Header ──
+    _uname = st.session_state.user_info['username']
+    _uemail = st.session_state.user_info['email']
+    _initial = _uname[0].upper() if _uname else "U"
+    st.markdown(f"""
+    <div style="display:flex;align-items:center;gap:12px;padding:8px 0 12px 0;border-bottom:1px solid rgba(148,163,184,0.1);margin-bottom:12px;">
+        <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#8b5cf6);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:0.9rem;flex-shrink:0;">{_initial}</div>
+        <div>
+            <div style="font-size:0.85rem;font-weight:600;color:#f1f5f9;">{_uname}</div>
+            <div style="font-size:0.7rem;color:#64748b;">{_uemail}</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     # Load profile data if not in session state
     if "user_profile" not in st.session_state or st.session_state.user_profile is None:
@@ -687,47 +995,47 @@ with st.sidebar:
             st.session_state.user_favorites = fav_res["favorites"]
 
     p = st.session_state.user_profile
-    res_opts = ["Apartment", "Individual House", "Other"]
-    res_idx = res_opts.index(p.get("residence_type", "Apartment")) if p.get("residence_type") in res_opts else 0
-    residence = st.selectbox("Residence Type", res_opts, index=res_idx)
 
-    com_opts = ["Own Vehicle", "Public Transport", "Walking/Biking", "Other"]
-    com_idx = com_opts.index(p.get("commute_type", "Own Vehicle")) if p.get("commute_type") in com_opts else 0
-    commute = st.selectbox("Commute Mode", com_opts, index=com_idx)
-
-    home_address = st.text_input("🏠 Home Address", value=p.get("home_address", "") or "", placeholder="City, Country")
-
-    # Quick Switch Buttons
+    # ── Quick Navigation ──
+    home_address = p.get("home_address", "") or ""
     if home_address:
-        if st.button("🏠 Home", use_container_width=True):
-            with st.spinner("📍 Switching to Home..."):
+        if st.button(":material/home: Home", use_container_width=True, key="sidebar_home_btn"):
+            with st.spinner("Switching to Home..."):
                 h_data = fetch_weather_by_city(home_address)
                 if h_data:
                     st.session_state.weather_data = h_data
                     st.session_state.current_city = h_data["city"]["name"]
                     st.rerun()
 
-    health = st.text_area("Health Factors (e.g. Asthma, Allergies)", value=p.get("health_issues", "") or "")
-    
-    if st.button("Save Preferences", use_container_width=True):
-        with st.spinner("Saving..."):
-            res = db.update_user_profile(st.session_state.user_info["id"], residence, commute, health, home_address)
-        if res["success"]:
-            st.session_state.user_profile = {
-                "residence_type": residence,
-                "commute_type": commute,
-                "health_issues": health,
-                "home_address": home_address
-            }
-            st.success("Profile saved!")
-        else:
-            st.error("Failed to save profile.")
+    # ── Profile Settings (collapsed by default) ──
+    with st.expander("Profile Settings", expanded=False):
+        res_opts = ["Apartment", "Individual House", "Other"]
+        res_idx = res_opts.index(p.get("residence_type", "Apartment")) if p.get("residence_type") in res_opts else 0
+        residence = st.selectbox("Residence Type", res_opts, index=res_idx)
 
-    st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
-    
+        com_opts = ["Own Vehicle", "Public Transport", "Walking/Biking", "Other"]
+        com_idx = com_opts.index(p.get("commute_type", "Own Vehicle")) if p.get("commute_type") in com_opts else 0
+        commute = st.selectbox("Commute Mode", com_opts, index=com_idx)
+
+        home_address_input = st.text_input("Home Address", value=home_address, placeholder="City, Country")
+
+        health = st.text_area("Health Factors", value=p.get("health_issues", "") or "", placeholder="e.g. Asthma, Allergies")
+        
+        if st.button(":material/save: Save", use_container_width=True, key="save_profile_btn"):
+            with st.spinner("Saving..."):
+                res = db.update_user_profile(st.session_state.user_info["id"], residence, commute, health, home_address_input)
+            if res["success"]:
+                st.session_state.user_profile = {
+                    "residence_type": residence,
+                    "commute_type": commute,
+                    "health_issues": health,
+                    "home_address": home_address_input
+                }
+                st.success("Saved!")
+            else:
+                st.error("Failed to save.")
+
     # ─── Reminders ─────────────────────────────
-    st.markdown("### ⏰ Reminders")
-    
     import datetime as dt_mod
     with st.expander("Schedule a Reminder"):
         with st.form("reminder_form", clear_on_submit=True):
@@ -736,7 +1044,7 @@ with st.sidebar:
             if "def_n_time" not in st.session_state:
                 st.session_state.def_n_time = (dt_mod.datetime.now() + dt_mod.timedelta(minutes=30)).time()
                 
-            r_desc = st.text_input("Event Description", placeholder="e.g. Morning Commute, Flight to NYC")
+            r_desc = st.text_input("Event", placeholder="e.g. Morning Commute")
             r_date = st.date_input("Event Date", value=dt_mod.date.today())
             r_time = st.time_input("Event Time", value=st.session_state.def_r_time)
             
@@ -781,55 +1089,29 @@ with st.sidebar:
                             )
                         else:
                             st.error(f"Failed to schedule: {res['error']}")
-                            
-    st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
-    st.markdown("---")
-    
-    # --- ACTIVE REMINDERS LIST ---
-    st.subheader("🔔 Active Reminders")
-    rem_res = db.get_reminders_by_user(st.session_state.user_info["id"])
-    if rem_res["success"] and rem_res["reminders"]:
-        for r in rem_res["reminders"]:
-            with st.container():
-                col_r1, col_r2 = st.columns([0.8, 0.2])
+
+    # ── Active Reminders ──
+    with st.expander("Active Reminders"):
+        rem_res = db.get_reminders_by_user(st.session_state.user_info["id"])
+        if rem_res["success"] and rem_res["reminders"]:
+            for r in rem_res["reminders"]:
+                evt_dt_obj = r['event_datetime']
+                not_dt_obj = r['notification_datetime']
+                col_r1, col_r2 = st.columns([0.85, 0.15])
                 with col_r1:
-                    evt_dt_obj = r['event_datetime']
-                    not_dt_obj = r['notification_datetime']
                     st.markdown(f"""
                     <div class="wt-reminder-card">
                         <div class="wt-reminder-title">{r['description']}</div>
-                        <div class="wt-reminder-meta">📍 {r['location_name']}</div>
-                        <div class="wt-reminder-meta">📅 {evt_dt_obj.strftime('%b %d, %I:%M %p')}</div>
-                        <div class="wt-reminder-meta">🔔 {not_dt_obj.strftime('%b %d, %I:%M %p')}</div>
+                        <div class="wt-reminder-meta">{r['location_name']} · {evt_dt_obj.strftime('%b %d, %I:%M %p')}</div>
                     </div>
                     """, unsafe_allow_html=True)
                 with col_r2:
-                    st.write("") # Spacer
-                    if st.button("🗑️", key=f"del_rem_{r['id']}", help="Delete Reminder"):
+                    if st.button(":material/delete:", key=f"del_rem_{r['id']}", help="Delete"):
                         del_res = db.delete_reminder(r['id'])
                         if del_res["success"]:
-                            st.success("Deleted!")
                             st.rerun()
-                        else:
-                            st.error("Error!")
-    else:
-        st.info("No active reminders.")
-
-    if st.button("🚪 Logout", key="sidebar_logout_btn", width="stretch"):
-        # Clear remember me token from DB
-        if "user_info" in st.session_state and st.session_state.user_info:
-            db.set_remember_token(st.session_state.user_info["id"], None, None)
-            
-        # Clear cookie
-        cookie_manager.delete("weathertwin_remember")
-            
-        st.session_state.logged_in = False
-        st.session_state.user_info = None
-        st.session_state.user_profile = None
-        st.session_state.user_favorites = []
-        st.session_state.fav_index = -1
-        st.session_state.auth_view = "login"
-        st.rerun()
+        else:
+            st.caption("No active reminders.")
 
 
 
@@ -967,57 +1249,7 @@ def _detect_severe(cur):
         alerts.append(("🌫️ Low Visibility", "#fbbf24"))
     return alerts
 
-def _render_small_alert_map(data, alerts, key_suffix=""):
-    """Render a small, high-impact map for extreme weather alerts with live radar."""
-    if not alerts or not data:
-        return
-    
-    city = data["city"]
-    lat, lon = city["latitude"], city["longitude"]
-    
-    st.markdown(f'<div style="margin-top:16px; margin-bottom:8px; font-weight:700; color:#f43f5e; font-size:0.9rem;">⚠️ Extreme Condition Tracker: {city["name"]}</div>', unsafe_allow_html=True)
-    
-    m = folium.Map(location=[lat, lon], zoom_start=8, tiles="OpenStreetMap", control_scale=True, max_zoom=20)
-    
-    # ─── Add Live Radar Tiles ──────
-    import httpx
-    try:
-        with httpx.Client() as client:
-            resp = client.get("https://api.rainviewer.com/public/weather-maps.json", timeout=10.0)
-            rv = resp.json()
-            latest = rv["radar"]["past"][-1]["path"]
-            folium.TileLayer(
-                tiles=f"https://tilecache.rainviewer.com{latest}/256/{{z}}/{{x}}/{{y}}/2/1_1.png",
-                attr="RainViewer",
-                overlay=True,
-                control=True,
-                opacity=0.6,
-                max_zoom=20,
-                max_native_zoom=12,
-                maxNativeZoom=12
-            ).add_to(m)
-    except Exception:
-        pass
 
-    # Add a pulsing circle or a bold marker
-    folium.CircleMarker(
-        location=[lat, lon],
-        radius=15,
-        color="#f43f5e",
-        fill=True,
-        fill_color="#f43f5e",
-        fill_opacity=0.4,
-        popup=f"Extreme Risk: {', '.join([a[0] for a in alerts])}"
-    ).add_to(m)
-    
-    folium.Marker(
-        [lat, lon],
-        icon=folium.Icon(color="red", icon="exclamation-triangle", prefix="fa"),
-        popup=city["name"]
-    ).add_to(m)
-    
-    st_folium(m, height=250, width=None, key=f"extreme_map_{city['name']}_{key_suffix}")
-    st.markdown('<div style="font-size:0.7rem; color:#94a3b8; text-align:center; margin-top:-10px;">🔵 Light · 🟢 Moderate · 🟡 Heavy · 🔴 Storm · 💗 Hail/Ice · ⚪ Snow</div>', unsafe_allow_html=True)
 
 
 # ─── Initialize Database tables ─────────────────
@@ -1026,151 +1258,75 @@ try:
 except Exception:
     pass  # Will fail until user adds credentials — that's OK
 
-# ─── Header with Logout ─────────────────────────
-hdr_left, hdr_right = st.columns([8, 2])
-with hdr_left:
-    user_display = st.session_state.user_info["username"] if st.session_state.user_info else ""
+# ─── Header: Logo + Search + User + Logout ─────────────────────────
+user_display = st.session_state.user_info["username"] if st.session_state.user_info else ""
+_user_initial = user_display[0].upper() if user_display else "U"
+
+hdr_logo, hdr_search, hdr_search_btn, hdr_user, hdr_logout = st.columns([2, 4, 1, 2, 1])
+with hdr_logo:
     st.markdown(f"""
-    <div class="wt-header">
-        <div class="wt-logo-icon">🌤️</div>
+    <div style="display:flex;align-items:center;gap:10px;padding:4px 0;">
+        <span style="font-size:1.6rem;">🌤️</span>
         <div>
-            <div class="wt-logo-text">WeatherTwin</div>
-            <div class="wt-logo-tag">AI Climate Intelligence</div>
-        </div>
-        <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
-            <span style="font-size:0.8rem;color:#94a3b8;">👤 {user_display}</span>
+            <div style="font-size:1rem;font-weight:700;color:#f8fafc;line-height:1.1;">WeatherTwin</div>
+            <div style="font-size:0.6rem;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">AI Climate Intelligence</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
-with hdr_right:
-    st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-    if st.button("🚪 Logout", key="logout_btn"):
-        st.session_state.logged_in = False
-        st.session_state.user_info = None
-        st.session_state.auth_page = "login"
-        st.rerun()
-
-
-# ─── Global Search & Location Picker ─────────────
-# This section remains outside the tabs to effect all views simultaneously
-
-# ─── Auto-detect location on first load ──────
-if not st.session_state.auto_located and not st.session_state.weather_data:
-    # Priority 1: Use Home Address from profile if set
-    prof = st.session_state.get("user_profile", {})
-    home_addr = prof.get("home_address")
-    
-    if home_addr:
-        st.session_state.auto_located = True
-        with st.spinner(f"🏠 Loading weather for your home: {home_addr}..."):
-            data = fetch_weather_by_city(home_addr)
-            if data:
-                st.session_state.weather_data = data
-                st.session_state.current_city = data["city"]["name"]
-                st.rerun()
-    else:
-        # If no home address, we don't auto-locate to browser anymore.
-        # User will see the "Welcome" message.
-        st.session_state.auto_located = True
-
-# ─── Search Bar UI ──────────────────────────────
-search_col1, search_col2, search_col3 = st.columns([6, 1, 1])
-with search_col1:
+with hdr_search:
     city_input = st.text_input(
         "Search",
         placeholder="Search any city — New York, Tokyo, London...",
         label_visibility="collapsed",
         key="search_input"
     )
-with search_col2:
-    search_clicked = st.button("🔍 Search", use_container_width=True)
-with search_col3:
-    map_picker_clicked = st.button("🗺️ Map", use_container_width=True)
+with hdr_search_btn:
+    search_clicked = st.button(":material/search:", use_container_width=True, key="search_btn")
+with hdr_user:
+    st.markdown(f"""
+    <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end;padding:8px 0;">
+        <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#8b5cf6);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:0.7rem;flex-shrink:0;">{_user_initial}</div>
+        <span style="font-size:0.8rem;color:#94a3b8;font-weight:500;">{user_display}</span>
+    </div>
+    """, unsafe_allow_html=True)
+with hdr_logout:
+    if st.button(":material/logout:", key="logout_btn", help="Sign Out"):
+        st.session_state.logged_in = False
+        st.session_state.user_info = None
+        st.session_state.auth_page = "login"
+        st.rerun()
 
-# Toggle map picker
-if map_picker_clicked:
-    st.session_state.show_map_picker = not st.session_state.show_map_picker
+
+# ─── Auto-detect location on first load ──────
+if not st.session_state.auto_located and not st.session_state.weather_data:
+    prof = st.session_state.get("user_profile", {})
+    home_addr = prof.get("home_address")
+    
+    if home_addr:
+        st.session_state.auto_located = True
+        with st.spinner(f"Loading weather for: {home_addr}..."):
+            data = fetch_weather_by_city(home_addr)
+            if data:
+                st.session_state.weather_data = data
+                st.session_state.current_city = data["city"]["name"]
+                st.rerun()
+    else:
+        st.session_state.auto_located = True
 
 # Handle city search
 if search_clicked and city_input:
-    st.session_state.show_map_picker = False
-    with st.spinner("🌤️ Analyzing climate data..."):
+    with st.spinner("Analyzing climate data..."):
         data = fetch_weather_by_city(city_input)
         if data:
             st.session_state.weather_data = data
             st.session_state.current_city = data["city"]["name"]
             st.rerun()
 
-# ─── Global Map Picker Logic ───────────────────────
-if st.session_state.show_map_picker:
-    # Center on current city if available, else world center
-    if st.session_state.weather_data:
-        m_center = [st.session_state.weather_data["city"]["latitude"],
-                    st.session_state.weather_data["city"]["longitude"]]
-        m_zoom = 6
-        m_cur_data = st.session_state.weather_data.get("current", {})
-        m_cur_city = st.session_state.weather_data.get("city", {})
-    else:
-        m_center = [20, 0]
-        m_zoom = 2
-        m_cur_data = {}
-        m_cur_city = {}
 
-    m_mode = st.radio("Map Mode", ["📍 Pick Location", "🌦️ Live Radar"],
-                        horizontal=True, key="global_map_mode_toggle", label_visibility="collapsed")
-
-    m_alerts = _detect_severe(m_cur_data) if m_cur_data else []
-    if any(c == "#f43f5e" for _, c in m_alerts): m_color = "red"
-    elif any(c == "#f97316" for _, c in m_alerts): m_color = "orange"
-    elif any(c == "#fbbf24" for _, c in m_alerts): m_color = "orange"
-    else: m_color = "blue"
-
-    m_popup = ""
-    if m_cur_city:
-        m_tags = " · ".join([a[0] for a in m_alerts]) if m_alerts else ""
-        m_popup = f"<b>{m_cur_city.get('name','')}</b><br>{round(m_cur_data.get('temperature', 0))}°C · {m_cur_data.get('condition','')}"
-        if m_tags: m_popup += f"<br><b style='color:#f43f5e;'>⚠️ {m_tags}</b>"
-
-    if m_mode == "🌦️ Live Radar":
-        import httpx
-        r_map = folium.Map(location=m_center, zoom_start=m_zoom, tiles="OpenStreetMap", max_zoom=20)
-        try:
-            with httpx.Client() as client:
-                resp = client.get("https://api.rainviewer.com/public/weather-maps.json", timeout=10.0)
-                rv = resp.json()
-                latest = rv["radar"]["past"][-1]["path"]
-                folium.TileLayer(
-                    tiles=f"https://tilecache.rainviewer.com{latest}/256/{{z}}/{{x}}/{{y}}/2/1_1.png", 
-                    attr="RainViewer", 
-                    overlay=True, 
-                    control=True, 
-                    opacity=0.6,
-                    max_zoom=20,
-                    max_native_zoom=12,
-                    maxNativeZoom=12
-                ).add_to(r_map)
-        except: pass
-        if m_cur_city: folium.Marker(m_center, tooltip=m_cur_city.get('name'), popup=folium.Popup(m_popup, max_width=280), icon=folium.Icon(color=m_color, icon="cloud", prefix="fa")).add_to(r_map)
-        st_folium(r_map, height=350, width=None, zoom=m_zoom, key="global_radar_map", returned_objects=[])
-        st.markdown('<div style="font-size:0.75rem; color:#94a3b8; text-align:center; margin-top:-10px;">🔵 Light Rain · 🟢 Moderate · 🟡 Heavy · 🔴 Intense/Storm · 💗 Hail/Ice · ⚪ Snow</div>', unsafe_allow_html=True)
-    else:
-        p_map = folium.Map(location=m_center, zoom_start=m_zoom, tiles="OpenStreetMap", max_zoom=20)
-        if m_cur_city: folium.Marker(m_center, tooltip=m_cur_city.get('name'), popup=folium.Popup(m_popup, max_width=280), icon=folium.Icon(color=m_color, icon="cloud", prefix="fa")).add_to(p_map)
-        m_res = st_folium(p_map, height=350, width=None, zoom=m_zoom, returned_objects=["last_clicked"], key="global_map_picker")
-        if m_res and m_res.get("last_clicked"):
-            lat, lon = m_res["last_clicked"]["lat"], m_res["last_clicked"]["lng"]
-            if abs(lat - m_center[0]) > 0.01 or abs(lon - m_center[1]) > 0.01:
-                with st.spinner("🌍 Moving to location..."):
-                    new_d = fetch_weather_by_coords(lat, lon)
-                    if new_d:
-                        st.session_state.weather_data = new_d
-                        st.session_state.current_city = new_d["city"]["name"]
-                        st.session_state.show_map_picker = False
-                        st.rerun()
 
 # ─── Tabs ────────────────────────────────────────
-tab_dashboard, tab_compare, tab_health, tab_agri, tab_travel, tab_rec, tab_extreme, tab_sim, tab_news = st.tabs([
-    "🌍 Dashboard", "⚖️ Compare", "🩺 Health", "🌾 Agriculture", "✈️ Travel", "💡 Predict", "⚠️ Extreme", "🌍 Simulator", "📰 News"
+tab_dashboard, tab_compare, tab_health, tab_agri, tab_travel, tab_rec, tab_sim, tab_news, tab_public_health = st.tabs([
+    "Dashboard", "Compare", "Health", "Agriculture", "Travel", "Predict", "Simulator", "News", "Public Health"
 ])
 
 
@@ -1191,25 +1347,256 @@ with tab_dashboard:
         comparison = data["comparison"]
         insight = data.get("insight", "")
 
-        # AI Insight Banner with adverse weather
-        insight_alerts = _detect_severe(current)
-        alert_badges = ""
-        if insight_alerts:
-            alert_badges = " ".join(
-                f"<span style='background:{c}22;color:{c};padding:2px 8px;border-radius:6px;font-size:0.72rem;font-weight:600;'>{t}</span>"
-                for t, c in insight_alerts
-            )
-            alert_badges = f"<div style='margin-bottom:8px;display:flex;flex-wrap:wrap;gap:6px;'>{alert_badges}</div>"
-
-        if insight or insight_alerts:
-            insight_text = f"<strong>{city['name']}:</strong> {insight}" if insight else f"<strong>{city['name']}</strong>"
-            st.markdown(f'<div class="wt-insight"><div class="wt-insight-label">👕 Today\'s Insight</div>{alert_badges}<div style="color:#94a3b8;font-size:0.9rem;line-height:1.5;margin-top:4px;">{insight_text}</div></div>', unsafe_allow_html=True)
+        # ─── global alert tracking for favorites and current ───
+        if "fav_weather_cache" not in st.session_state:
+            st.session_state.fav_weather_cache = {}
             
-            # Show extreme map if alerts exist
-            if insight_alerts:
-                _render_small_alert_map(data, insight_alerts, key_suffix="dash")
+        all_alerts = []
+        
+        # 1. Current Location
+        cur_alerts = _detect_severe(current)
+        if cur_alerts:
+            for l, c in cur_alerts:
+                all_alerts.append((city['name'], l, c))
+                
+        # 2. Favorites
+        for f in st.session_state.user_favorites:
+            name = f["name"]
+            if name != city['name']:
+                if name not in st.session_state.fav_weather_cache:
+                    f_data = fetch_weather_by_coords(f["lat"], f["lon"])
+                    if f_data:
+                        st.session_state.fav_weather_cache[name] = f_data["current"]
+                f_curr = st.session_state.fav_weather_cache.get(name)
+                if f_curr:
+                    f_alerts = _detect_severe(f_curr)
+                    if f_alerts:
+                        for l, c in f_alerts:
+                            all_alerts.append((name, l, c))
+                            
+        if all_alerts:
+            # Display highly visible alert banner in a single line
+            alert_items = [f"<strong>{loc}</strong> <span style='color:{c};'>({lbl})</span>" for loc, lbl, c in all_alerts]
+            alert_text = " · ".join(alert_items)
+            alert_html = f"<div style='background:rgba(244,63,94,0.15); border:1px solid #f43f5e; padding:8px 12px; border-radius:8px; margin-bottom:16px; font-size:0.95rem; color:#f8fafc;'><i class='fa fa-exclamation-triangle'></i> ⚠️ <strong>Severe Alerts:</strong> {alert_text}</div>"
+            st.markdown(alert_html, unsafe_allow_html=True)
+            
+            # Throttle and send email
+            import time
+            import backend.email_service as ems
+            now_ts = time.time()
+            last_email_ts = st.session_state.get("last_alert_email_time", 0)
+            if now_ts - last_email_ts > 1800: # 30-minute throttle
+                st.session_state.last_alert_email_time = now_ts
+                mail_html = alert_html
+                try:
+                    ems.send_extreme_weather_alert_email(st.session_state.user_info["email"], mail_html)
+                except Exception as e:
+                    print("Failed to send alert email: ", e)
 
-    elif not st.session_state.show_map_picker:
+        # ─── Check active favorite status ─────────────
+        c_lat, c_lon = city["latitude"], city["longitude"]
+        is_fav = any(abs(f["lat"] - c_lat) < 0.001 and abs(f["lon"] - c_lon) < 0.001 for f in st.session_state.user_favorites)
+        
+        # ─── Current Weather Location & Nav Actions ──
+        location_text = f"{city['name']}{', ' + city.get('admin1', '') if city.get('admin1') else ''}, {city.get('country', '')}"
+        
+        # Location name + inline favorite + time on left, nav on right
+        col_title, col_actions = st.columns([3, 2])
+        
+        with col_title:
+            fav_icon = ":material/favorite:" if is_fav else ":material/favorite_border:"
+            fav_tip = "Remove from favorites" if is_fav else "Add to favorites" 
+            
+            # Location + favorite on same row
+            loc_col, fav_col = st.columns([0.9, 0.1])
+            with loc_col:
+                st.markdown(f'<div style="font-size:1.8rem; font-weight:700; color:#f8fafc; margin-bottom:2px;">{location_text}</div>', unsafe_allow_html=True)
+            with fav_col:
+                if st.button(fav_icon, key="fav_inline_btn", help=fav_tip):
+                    with st.spinner("Updating..."):
+                        if is_fav:
+                            db.remove_favorite(st.session_state.user_info["id"], c_lat, c_lon)
+                        else:
+                            db.add_favorite(st.session_state.user_info["id"], city["name"], c_lat, c_lon)
+                        st.session_state.user_favorites = []
+                        st.rerun()
+            if data.get("local_time"):
+                st.markdown(f'<div style="font-size:0.8rem; color:#94a3b8; font-weight:500; margin-top:2px;">Local Time: {data["local_time"]}</div>', unsafe_allow_html=True)
+
+        with col_actions:
+            nav_col1, nav_col2 = st.columns([1, 1])
+            
+            with nav_col1:
+                if st.button(":material/chevron_left: Prev", help="Previous location", use_container_width=True):
+                    num_favs = len(st.session_state.user_favorites)
+                    if num_favs > 0:
+                        st.session_state.fav_index -= 1
+                        if st.session_state.fav_index < -1:
+                            st.session_state.fav_index = num_favs - 1
+                        
+                        if st.session_state.fav_index == -1:
+                            pass 
+                        else:
+                            f = st.session_state.user_favorites[st.session_state.fav_index]
+                            with st.spinner("Loading..."):
+                                new_data = fetch_weather_by_coords(f["lat"], f["lon"])
+                                if new_data:
+                                    st.session_state.weather_data = new_data
+                                    st.session_state.current_city = new_data["city"]["name"]
+                                    st.rerun()
+
+            with nav_col2:
+                if st.button("Next :material/chevron_right:", help="Next location", use_container_width=True):
+                    num_favs = len(st.session_state.user_favorites)
+                    if num_favs > 0:
+                        st.session_state.fav_index += 1
+                        if st.session_state.fav_index >= num_favs:
+                            st.session_state.fav_index = -1
+                        
+                        if st.session_state.fav_index == -1:
+                            pass
+                        else:
+                            f = st.session_state.user_favorites[st.session_state.fav_index]
+                            with st.spinner("Loading..."):
+                                new_data = fetch_weather_by_coords(f["lat"], f["lon"])
+                                if new_data:
+                                    st.session_state.weather_data = new_data
+                                    st.session_state.current_city = new_data["city"]["name"]
+                                    st.rerun()
+
+        st.markdown("<div style='border-bottom:1px solid rgba(255,255,255,0.05);margin-bottom:16px;'></div>", unsafe_allow_html=True)                 
+
+        fc1, fc2, fc3, fc4, fc5 = st.columns(5)
+        with fc1:
+            st.markdown(f"""
+            <div class="wt-card" style="text-align:center;padding:8px 4px;margin-bottom:16px;">
+                <div style="font-size:1.8rem;font-weight:800;
+                     background:linear-gradient(135deg,#06b6d4,#3b82f6);
+                     -webkit-background-clip:text;-webkit-text-fill-color:transparent;">
+                    {round(current['temperature'])}°
+                </div>
+                <div style="font-size:0.6rem;color:#64748b;margin-top:2px;">Feels {round(current['feels_like'])}°</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with fc2:
+            st.markdown(f"""
+            <div class="wt-card" style="text-align:center;padding:8px 4px;margin-bottom:16px;">
+                <div style="font-size:1.4rem;">{get_emoji(current['icon'], current.get('is_day', True))}</div>
+                <div style="font-size:0.8rem;font-weight:600;color:#f1f5f9;margin-top:2px;">{current['condition']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with fc3:
+            st.markdown(f"""
+            <div class="wt-card" style="text-align:center;padding:8px 4px;margin-bottom:16px;">
+                <div style="font-size:1.2rem;">💧</div>
+                <div style="font-size:0.9rem;font-weight:700;color:#f1f5f9;margin-top:2px;">{current['humidity']}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with fc4:
+            st.markdown(f"""
+            <div class="wt-card" style="text-align:center;padding:8px 4px;margin-bottom:16px;">
+                <div style="font-size:1.2rem;">💨</div>
+                <div style="font-size:0.9rem;font-weight:700;color:#f1f5f9;margin-top:2px;">{current['wind_speed']} <span style="font-size:0.6rem;color:#64748b;">km/h</span></div>
+            </div>
+            """, unsafe_allow_html=True)
+        with fc5:
+            st.markdown(f"""
+            <div class="wt-card" style="text-align:center;padding:8px 4px;margin-bottom:16px;">
+                <div style="font-size:1.2rem;">🌧️</div>
+                <div style="font-size:0.9rem;font-weight:700;color:#f1f5f9;margin-top:2px;">{current.get('precipitation', 0)} <span style="font-size:0.6rem;color:#64748b;">mm</span></div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        col_insight, col_dress, col_map = st.columns([1.2, 1, 1.8], gap="medium")
+        
+        with col_insight:
+            st.markdown("<div style='font-size:0.9rem; font-weight:600; color:#94a3b8; margin-bottom:8px;'>Daily Summary & Alerts</div>", unsafe_allow_html=True)
+            if insight:
+                # Parse insight into structured bullet points for readability
+                import re as _re
+                _sentences = [s.strip() for s in _re.split(r'(?<=[.!])\s+', insight) if s.strip()]
+                _bullets_html = ""
+                for _s in _sentences:
+                    # Color-code by category
+                    if any(w in _s.lower() for w in ['temperature', 'feels like', '°c', 'hot', 'cold', 'chilly', 'warm', 'pleasant', 'mild']):
+                        _chip = '<span style="display:inline-block;padding:1px 6px;border-radius:4px;font-size:0.65rem;font-weight:600;background:rgba(6,182,212,0.15);color:#06b6d4;margin-right:6px;">TEMP</span>'
+                    elif any(w in _s.lower() for w in ['umbrella', 'rain', 'coat', 'jacket', 'sweater', 'layers', 'sunscreen', 'clothing', 'wear', 'boots', 'windbreaker']):
+                        _chip = '<span style="display:inline-block;padding:1px 6px;border-radius:4px;font-size:0.65rem;font-weight:600;background:rgba(139,92,246,0.15);color:#8b5cf6;margin-right:6px;">WEAR</span>'
+                    elif any(w in _s.lower() for w in ['walk', 'jog', 'picnic', 'outdoor', 'indoor', 'museum', 'stroll', 'activity', 'stargazing', 'movie', 'café']):
+                        _chip = '<span style="display:inline-block;padding:1px 6px;border-radius:4px;font-size:0.65rem;font-weight:600;background:rgba(16,185,129,0.15);color:#10b981;margin-right:6px;">DO</span>'
+                    elif any(w in _s.lower() for w in ['wind', 'fog', 'visibility', 'drive', 'cycling', 'secure']):
+                        _chip = '<span style="display:inline-block;padding:1px 6px;border-radius:4px;font-size:0.65rem;font-weight:600;background:rgba(245,158,11,0.15);color:#f59e0b;margin-right:6px;">ALERT</span>'
+                    else:
+                        _chip = ''
+                    _bullets_html += f'<li style="margin-bottom:6px;font-size:0.82rem;color:#cbd5e1;line-height:1.45;">{_chip}{_s}</li>'
+                st.markdown(f"""
+                <div class="wt-insight" style="height:250px; overflow-y:auto;">
+                    <div style="font-size:0.75rem;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">{city['name']} — Today</div>
+                    <ul style="margin:0;padding-left:16px;list-style:none;">{_bullets_html}</ul>
+                </div>
+                """, unsafe_allow_html=True)
+
+        with col_dress:
+            st.markdown("<div style='font-size:0.9rem; font-weight:600; color:#94a3b8; margin-bottom:8px;'>👗 What to Wear</div>", unsafe_allow_html=True)
+            
+            temp = round(current.get('temperature', 20))
+            cond = current.get('condition', '').lower()
+            
+            # Map weather to local images in assets/outfits
+            outfit_img = "mild.png" # default
+            if "rain" in cond or "drizzle" in cond:
+                outfit_img = "rainy.png"
+            elif temp < 10:
+                outfit_img = "cold.png"
+            elif temp < 18:
+                outfit_img = "cool.png"
+            elif temp < 25:
+                outfit_img = "mild.png"
+            else:
+                outfit_img = "hot.png"
+                
+            img_path = os.path.join("assets", "outfits", outfit_img)
+            
+            if os.path.exists(img_path):
+                with open(img_path, "rb") as f:
+                    data_b64 = base64.b64encode(f.read()).decode()
+                
+                img_html = f'<div style="border-radius:12px; overflow:hidden; border: 1px solid rgba(255,255,255,0.1); height:250px; display:flex; justify-content:center; align-items:center; background:#1e293b;"><img src="data:image/png;base64,{data_b64}" style="height:100%; width:100%; object-fit:cover;"></div>'
+                st.markdown(img_html, unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div style="border-radius:12px; height:250px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.05); color:#64748b; font-size:0.8rem;">Image {outfit_img} not found</div>', unsafe_allow_html=True)
+
+        with col_map:
+            st.markdown("<div style='font-size:0.9rem; font-weight:600; color:#94a3b8; margin-bottom:8px;'>🗺️ Interactive Radar (Click anywhere to change location)</div>", unsafe_allow_html=True)
+            m_center = [city["latitude"], city["longitude"]]
+            r_map = folium.Map(location=m_center, zoom_start=6, tiles="OpenStreetMap", max_zoom=20)
+            try:
+                import httpx
+                with httpx.Client() as client:
+                    resp = client.get("https://api.rainviewer.com/public/weather-maps.json", timeout=10.0)
+                    rv = resp.json()
+                    latest = rv["radar"]["past"][-1]["path"]
+                    folium.TileLayer(
+                        tiles=f"https://tilecache.rainviewer.com{latest}/256/{{z}}/{{x}}/{{y}}/2/1_1.png", 
+                        attr="RainViewer", overlay=True, control=True, opacity=0.6, max_zoom=20, max_native_zoom=12, maxNativeZoom=12
+                    ).add_to(r_map)
+            except: pass
+            
+            folium.Marker(m_center, tooltip=city.get('name'), icon=folium.Icon(color="red", icon="cloud", prefix="fa")).add_to(r_map)
+            
+            m_res = st_folium(r_map, height=250, width=None, zoom=6, key="dash_interactive_radar", returned_objects=["last_clicked"])
+            if m_res and m_res.get("last_clicked"):
+                lat, lon = m_res["last_clicked"]["lat"], m_res["last_clicked"]["lng"]
+                if abs(lat - m_center[0]) > 0.01 or abs(lon - m_center[1]) > 0.01:
+                    with st.spinner("🌍 Moving to location..."):
+                        new_d = fetch_weather_by_coords(lat, lon)
+                        if new_d:
+                            st.session_state.weather_data = new_d
+                            st.session_state.current_city = new_d["city"]["name"]
+                            st.rerun()
+
+    else:
         st.markdown("---")
         st.markdown("<h2 style='text-align:center;color:#f1f5f9;'>Welcome to WeatherTwin</h2>", unsafe_allow_html=True)
         st.markdown("<p style='text-align:center;color:#94a3b8;max-width:500px;margin:0 auto 20px;'>Search for a city above or click <b>🗺️ Map</b> to pick a location on the map.</p>", unsafe_allow_html=True)
@@ -1222,134 +1609,6 @@ with tab_dashboard:
         historical = data["historical"]
         comparison = data["comparison"]
 
-        # ─── Check active favorite status ─────────────
-        c_lat, c_lon = city["latitude"], city["longitude"]
-        is_fav = any(abs(f["lat"] - c_lat) < 0.001 and abs(f["lon"] - c_lon) < 0.001 for f in st.session_state.user_favorites)
-        
-        # ─── Current Weather — Single Row Flashcards ──
-        location_text = f"{city['name']}{', ' + city.get('admin1', '') if city.get('admin1') else ''}, {city.get('country', '')}"
-        
-        st.markdown("<div style='display:flex; justify-content:space-between; align-items:flex-end; border-bottom: 2px solid rgba(255,255,255,0.05); padding-bottom:12px; margin-bottom: 24px;'>", unsafe_allow_html=True)
-        
-        # Left side: Location naming and timezone
-        col_title, col_actions = st.columns([1, 1])
-        
-        with col_title:
-            st.markdown(f'<div style="font-size:2rem; font-weight:700; color:#f8fafc; margin-bottom:4px;">{location_text}</div>', unsafe_allow_html=True)
-            if data.get("local_time"):
-                st.markdown(f'<div style="font-size:0.9rem; color:#94a3b8; font-weight:500;">🕒 Local Time: {data["local_time"]}</div>', unsafe_allow_html=True)
-
-        with col_actions:
-            st.markdown("""<style>
-            .stButton>button { border-radius: 8px; font-weight: 600; padding: 4px 12px; }
-            </style>""", unsafe_allow_html=True)
-            
-            nav_col1, nav_col2, toggle_col = st.columns([1, 1, 2])
-            
-            # Carousel Navigation
-            with nav_col1:
-                if st.button("<< Previous", help="Previous location", use_container_width=True):
-                    num_favs = len(st.session_state.user_favorites)
-                    if num_favs > 0:
-                        st.session_state.fav_index -= 1
-                        if st.session_state.fav_index < -1:
-                            st.session_state.fav_index = num_favs - 1
-                        
-                        if st.session_state.fav_index == -1:
-                            # User searched something context
-                            pass 
-                        else:
-                            f = st.session_state.user_favorites[st.session_state.fav_index]
-                            with st.spinner("Loading..."):
-                                new_data = fetch_weather_by_coords(f["lat"], f["lon"])
-                                if new_data:
-                                    st.session_state.weather_data = new_data
-                                    st.session_state.current_city = new_data["city"]["name"]
-                                    st.rerun()
-
-            with nav_col2:
-                if st.button("Next >>", help="Next location", use_container_width=True):
-                    num_favs = len(st.session_state.user_favorites)
-                    if num_favs > 0:
-                        st.session_state.fav_index += 1
-                        if st.session_state.fav_index >= num_favs:
-                            st.session_state.fav_index = -1
-                        
-                        if st.session_state.fav_index == -1:
-                            # Return to initial context if tracking it, or cycle again
-                            pass
-                        else:
-                            f = st.session_state.user_favorites[st.session_state.fav_index]
-                            with st.spinner("Loading..."):
-                                new_data = fetch_weather_by_coords(f["lat"], f["lon"])
-                                if new_data:
-                                    st.session_state.weather_data = new_data
-                                    st.session_state.current_city = new_data["city"]["name"]
-                                    st.rerun()
-            
-            # Favorite Toggle Button
-            with toggle_col:
-                heart_icon = "❤️" if is_fav else "🤍"
-                if st.button(f"{heart_icon} Favorite", use_container_width=True):
-                    with st.spinner("Updating..."):
-                        if is_fav:
-                            db.remove_favorite(st.session_state.user_info["id"], c_lat, c_lon)
-                        else:
-                            db.add_favorite(st.session_state.user_info["id"], city["name"], c_lat, c_lon)
-                        
-                        # Refresh favorites
-                        st.session_state.user_favorites = []  # Force flush
-                        st.rerun()
-                        
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        fc1, fc2, fc3, fc4, fc5 = st.columns(5)
-        with fc1:
-            st.markdown(f"""
-            <div class="wt-card" style="text-align:center;padding:18px 10px;">
-                <div style="font-size:2.5rem;font-weight:800;
-                     background:linear-gradient(135deg,#06b6d4,#3b82f6);
-                     -webkit-background-clip:text;-webkit-text-fill-color:transparent;">
-                    {round(current['temperature'])}°C
-                </div>
-                <div style="font-size:0.75rem;color:#64748b;margin-top:4px;">
-                    Feels {round(current['feels_like'])}°
-                </div>
-                <div style="font-size:0.7rem;font-weight:600;color:#94a3b8;text-transform:uppercase;margin-top:8px;">Temperature</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with fc2:
-            st.markdown(f"""
-            <div class="wt-card" style="text-align:center;padding:18px 10px;">
-                <div style="font-size:2.2rem;">{get_emoji(current['icon'], current.get('is_day', True))}</div>
-                <div style="font-size:1rem;font-weight:600;color:#f1f5f9;margin-top:4px;">{current['condition']}</div>
-                <div style="font-size:0.7rem;font-weight:600;color:#94a3b8;text-transform:uppercase;margin-top:8px;">Condition</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with fc3:
-            st.markdown(f"""
-            <div class="wt-card" style="text-align:center;padding:18px 10px;">
-                <div style="font-size:1.6rem;">💧</div>
-                <div style="font-size:1.4rem;font-weight:700;color:#f1f5f9;">{current['humidity']}%</div>
-                <div style="font-size:0.7rem;font-weight:600;color:#94a3b8;text-transform:uppercase;margin-top:8px;">Humidity</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with fc4:
-            st.markdown(f"""
-            <div class="wt-card" style="text-align:center;padding:18px 10px;">
-                <div style="font-size:1.6rem;">💨</div>
-                <div style="font-size:1.4rem;font-weight:700;color:#f1f5f9;">{current['wind_speed']} <span style="font-size:0.75rem;color:#64748b;">km/h</span></div>
-                <div style="font-size:0.7rem;font-weight:600;color:#94a3b8;text-transform:uppercase;margin-top:8px;">Wind</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with fc5:
-            st.markdown(f"""
-            <div class="wt-card" style="text-align:center;padding:18px 10px;">
-                <div style="font-size:1.6rem;">🌧️</div>
-                <div style="font-size:1.4rem;font-weight:700;color:#f1f5f9;">{current.get('precipitation', 0)} <span style="font-size:0.75rem;color:#64748b;">mm</span></div>
-                <div style="font-size:0.7rem;font-weight:600;color:#94a3b8;text-transform:uppercase;margin-top:8px;">Precipitation</div>
-            </div>
-            """, unsafe_allow_html=True)
 
         # ─── 24-Hour Forecast ─────────────────────
         if forecast and forecast.get("hourly"):
@@ -1514,7 +1773,7 @@ with tab_dashboard:
 #  COMPARE TAB
 # ═══════════════════════════════════════════════════
 with tab_compare:
-    st.markdown("<h2 style='color:#f1f5f9;'>⚖️ Compare Two Cities</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#f1f5f9;'>Compare Two Cities</h2>", unsafe_allow_html=True)
 
     comp_col1, comp_col2, comp_col3 = st.columns([3, 1, 3])
     with comp_col1:
@@ -1524,7 +1783,7 @@ with tab_compare:
     with comp_col3:
         compare_city2 = st.text_input("City 2", placeholder="e.g. London", label_visibility="collapsed", key="comp2")
 
-    if st.button("⚖️ Compare", use_container_width=True, key="compare_btn"):
+    if st.button(":material/compare_arrows: Compare", use_container_width=True, key="compare_btn"):
         if not compare_city1 or not compare_city2:
             st.error("Please enter two cities to compare.")
         else:
@@ -1727,19 +1986,7 @@ with tab_rec:
     except Exception as e:
         st.error(f"Module error: {e}")
 
-with tab_extreme:
-    try:
-        from features.extreme_weather.ui import render_extreme_weather_tab
-        # Check for alerts before rendering
-        d = st.session_state.weather_data
-        if d:
-            al = _detect_severe(d["current"])
-            if al:
-                _render_small_alert_map(d, al, key_suffix="xtreme")
-        render_extreme_weather_tab(city_name)
-    except Exception as e:
-        st.error(f"Module error: {e}")
-        
+
 with tab_sim:
     try:
         from features.climate_simulator.ui import render_climate_simulator_tab
@@ -1751,6 +1998,13 @@ with tab_news:
     try:
         from features.climate_news.ui import render_climate_news_tab
         render_climate_news_tab()
+    except Exception as e:
+        st.error(f"Module error: {e}")
+
+with tab_public_health:
+    try:
+        from features.public_health.ui import render_public_health_tab
+        render_public_health_tab()
     except Exception as e:
         st.error(f"Module error: {e}")
 
@@ -1788,8 +2042,8 @@ st.markdown(
     }
     /* Make the popover wide enough for chat */
     div[data-testid="stPopoverBody"] {
-        width: 350px !important;
-        max-width: 90vw !important;
+        width: 800px !important;
+        max-width: 95vw !important;
         height: 500px !important;
         max-height: 80vh !important;
         padding: 1rem;
@@ -1802,21 +2056,68 @@ st.markdown(
 with st.popover("💬", use_container_width=False):
     st.markdown("<h4 style='margin-top:0;'>🤖 WeatherTwin AI</h4>", unsafe_allow_html=True)
     
-    chat_container = st.container(height=340)
-    with chat_container:
-        if len(st.session_state.chat_history) == 0:
-            st.caption("Ask anything about the forecast or climate impact!")
-        for msg in st.session_state.chat_history:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-                
-    if prompt := st.chat_input("Ask a question..."):
-        st.session_state.chat_history.append({"role": "user", "content": prompt})
-        st.rerun()
+    if "active_chat_id" not in st.session_state:
+        st.session_state.active_chat_id = None
+        
+    col_hist, col_chat = st.columns([0.4, 0.6])
+    
+    with col_hist:
+        st.markdown("##### 💬 Chat History")
+        if st.button("➕ New Chat", use_container_width=True):
+            st.session_state.chat_history = []
+            st.session_state.active_chat_id = None
+            st.rerun()
+            
+        chat_sessions = db.get_chat_sessions(st.session_state.user_info["id"])
+        if chat_sessions["success"] and chat_sessions["sessions"]:
+            for sess in chat_sessions["sessions"]:
+                col_h1, col_h2 = st.columns([0.8, 0.2])
+                with col_h1:
+                    is_active = (st.session_state.active_chat_id == sess['id'])
+                    btn_type = "primary" if is_active else "secondary"
+                    if st.button(f"{sess['title']}\n\n_{sess['updated_at'].strftime('%b %d, %H:%M')}_", key=f"load_chat_{sess['id']}", use_container_width=True, type=btn_type):
+                        msg_res = db.get_chat_messages(sess['id'])
+                        if msg_res["success"]:
+                            st.session_state.chat_history = msg_res["messages"]
+                            st.session_state.active_chat_id = sess['id']
+                        st.rerun()
+                with col_h2:
+                    if st.button("🗑️", key=f"del_chat_{sess['id']}", help="Delete Chat"):
+                        db.delete_chat_session(sess['id'])
+                        if st.session_state.active_chat_id == sess['id']:
+                            st.session_state.chat_history = []
+                            st.session_state.active_chat_id = None
+                        st.rerun()
+        else:
+            st.info("No saved chats yet.")
+            
+    with col_chat:    
+        chat_container = st.container(height=340)
+        with chat_container:
+            if len(st.session_state.chat_history) == 0:
+                st.caption("Ask anything about the forecast or climate impact!")
+            for msg in st.session_state.chat_history:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"])
+                    
+        if prompt := st.chat_input("Ask a question..."):
+            st.session_state.chat_history.append({"role": "user", "content": prompt})
+            st.rerun()
 
 # ─── Chat execution (after rerun inside the popover) ───
 if len(st.session_state.chat_history) > 0 and st.session_state.chat_history[-1]["role"] == "user":
     prompt = st.session_state.chat_history[-1]["content"]
+    
+    # Check if this is the FIRST message of a new chat
+    if st.session_state.active_chat_id is None:
+        title = (prompt[:47] + "...") if len(prompt) > 50 else prompt
+        s_res = db.create_chat_session(st.session_state.user_info["id"], title)
+        if s_res["success"]:
+            st.session_state.active_chat_id = s_res["session_id"]
+            db.add_chat_message(st.session_state.active_chat_id, "user", prompt)
+    else:
+        db.add_chat_message(st.session_state.active_chat_id, "user", prompt)
+
     with st.spinner("AI is thinking..."):
         groq_key = os.getenv("GROQ_API_KEY", "")
         if not groq_key or groq_key == "your_groq_api_key_here":
@@ -1847,6 +2148,8 @@ if len(st.session_state.chat_history) > 0 and st.session_state.chat_history[-1][
                 answer = "I don't have enough location data. Please search a city first!"
         
         st.session_state.chat_history.append({"role": "assistant", "content": answer})
+        if st.session_state.active_chat_id is not None:
+            db.add_chat_message(st.session_state.active_chat_id, "assistant", answer)
         st.rerun()
 
 

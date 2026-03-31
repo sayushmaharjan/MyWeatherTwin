@@ -477,6 +477,56 @@ async def fetch_full_weather_data(geo: dict, grow_api_key: str = "", user_profil
     }
 
 
+async def get_forecast_at_time(lat: float, lon: float, target_dt: "datetime") -> dict:
+    """Fetch forecast data for a specific future datetime.
+
+    Returns the hourly entry closest to *target_dt* together with the
+    daily summary for that date.  Falls back to current weather when
+    the target is outside the forecast window.
+    """
+    forecast = await get_forecast(lat, lon, days=16)
+
+    # --- Find the closest hourly entry ---
+    best_hourly = None
+    best_diff = None
+    for h in forecast.get("hourly", []):
+        try:
+            h_dt = datetime.fromisoformat(h["time"])
+        except Exception:
+            continue
+        diff = abs((h_dt - target_dt).total_seconds())
+        if best_diff is None or diff < best_diff:
+            best_diff = diff
+            best_hourly = h
+
+    # --- Find the matching daily entry ---
+    target_date_str = target_dt.strftime("%Y-%m-%d")
+    best_daily = None
+    for d in forecast.get("daily", []):
+        if d.get("date") == target_date_str:
+            best_daily = d
+            break
+
+    if best_hourly:
+        return {
+            "temperature": best_hourly.get("temperature"),
+            "feels_like": best_hourly.get("feels_like"),
+            "humidity": best_hourly.get("humidity"),
+            "precipitation": best_hourly.get("precipitation", 0),
+            "precip_probability": best_hourly.get("precip_probability", 0),
+            "wind_speed": best_hourly.get("wind_speed", 0),
+            "condition": best_hourly.get("condition", "Unknown"),
+            "icon": best_hourly.get("icon", "cloudy"),
+            "is_day": best_hourly.get("is_day", True),
+            "time": best_hourly.get("time"),
+            "daily_summary": best_daily,
+            "source": "forecast",
+        }
+
+    # Fallback: target is outside forecast range – return empty dict
+    return {}
+
+
 def generate_local_insight(current: dict, forecast: dict) -> str:
     """Rule-based clothing/activity advice."""
     temp = current.get("temperature", 20)
