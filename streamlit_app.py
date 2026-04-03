@@ -28,6 +28,16 @@ import llm_service as llm
 import db_service as db
 import email_service as em
 
+# Import monitoring
+try:
+    import monitoring as mon
+    from logger_config import app_logger
+    MONITORING_ENABLED = True
+except ImportError:
+    MONITORING_ENABLED = False
+    import logging
+    app_logger = logging.getLogger("app")
+
 import extra_streamlit_components as stx
 
 # Initialize cookie manager (must NOT be cached per Streamlit rules)
@@ -61,27 +71,75 @@ def run_async(coro):
 
 # ─── Data Fetching Helpers ───────────────────────
 def fetch_weather_by_city(city_name):
-    """Bridge to weather_service."""
+    """Bridge to weather_service with monitoring."""
+    import time as _time
+    start = _time.perf_counter()
+
     try:
         geo = run_async(ws.geocode_city(city_name))
         if not geo:
             st.error(f"City '{city_name}' not found")
+            if MONITORING_ENABLED:
+                mon.record_error("WeatherService", "CityNotFound", f"City '{city_name}' not found")
             return None
-        return run_async(ws.fetch_full_weather_data(geo, os.getenv("GROQ_API_KEY", ""), st.session_state.get("user_profile")))
+        
+        result = run_async(ws.fetch_full_weather_data(geo, os.getenv("GROQ_API_KEY", ""), st.session_state.get("user_profile")))
+        
+        elapsed_ms = (_time.perf_counter() - start) * 1000
+        
+        if MONITORING_ENABLED and result:
+            user_id = st.session_state.get("user_info", {}).get("id")
+            mon.record_query(
+                user_id=user_id or 0,
+                city=city_name,
+                query_type="city_search",
+                lat=geo.get("latitude"),
+                lon=geo.get("longitude"),
+                response_time_ms=elapsed_ms,
+            )
+            app_logger.info(f"Weather fetched for '{city_name}' in {elapsed_ms:.0f}ms",
+                            extra={"city": city_name, "latency_ms": elapsed_ms})
+            
+        return result
     except Exception as e:
         st.error(f"⚠️ Weather Service Error: Could not connect to API ({type(e).__name__}). Please check your internet connection.")
+        if MONITORING_ENABLED:
+            mon.record_error("WeatherService", type(e).__name__, str(e))
         return None
 
 def fetch_weather_by_coords(lat, lon):
-    """Bridge to weather_service."""
+    """Bridge to weather_service with monitoring."""
+    import time as _time
+    start = _time.perf_counter()
+
     try:
         geo = run_async(ws.reverse_geocode(lat, lon))
         if not geo:
             geo = {"name": f"{lat:.2f}°, {lon:.2f}°", "country": "", "admin1": "",
                    "latitude": lat, "longitude": lon, "timezone": "auto", "population": None}
-        return run_async(ws.fetch_full_weather_data(geo, os.getenv("GROQ_API_KEY", ""), st.session_state.get("user_profile")))
+        
+        result = run_async(ws.fetch_full_weather_data(geo, os.getenv("GROQ_API_KEY", ""), st.session_state.get("user_profile")))
+        
+        elapsed_ms = (_time.perf_counter() - start) * 1000
+        
+        if MONITORING_ENABLED and result:
+            user_id = st.session_state.get("user_info", {}).get("id")
+            mon.record_query(
+                user_id=user_id or 0,
+                city=geo.get("name", "Unknown"),
+                query_type="coords_search",
+                lat=lat,
+                lon=lon,
+                response_time_ms=elapsed_ms,
+            )
+            app_logger.info(f"Weather fetched for ({lat}, {lon}) in {elapsed_ms:.0f}ms",
+                            extra={"latency_ms": elapsed_ms})
+            
+        return result
     except Exception as e:
         st.error(f"⚠️ Weather Service Error: Could not connect to API ({type(e).__name__}). Please check your internet connection.")
+        if MONITORING_ENABLED:
+            mon.record_error("WeatherService", type(e).__name__, str(e))
         return None
 
 
@@ -1324,9 +1382,13 @@ if search_clicked and city_input:
 
 
 
+if MONITORING_ENABLED:
+    mon.init_monitoring_tables()
+    mon.start_flush_thread(30)
+
 # ─── Tabs ────────────────────────────────────────
-tab_dashboard, tab_compare, tab_health, tab_agri, tab_travel, tab_rec, tab_sim, tab_news, tab_public_health = st.tabs([
-    "Dashboard", "Compare", "Health", "Agriculture", "Travel", "Predict", "Simulator", "News", "Public Health"
+tab_dashboard, tab_compare, tab_health, tab_agri, tab_travel, tab_rec, tab_sim, tab_news, tab_public_health, tab_monitoring = st.tabs([
+    "Dashboard", "Compare", "Health", "Agriculture", "Travel", "Predict", "Simulator", "News", "Public Health", "Monitoring"
 ])
 
 
@@ -1538,7 +1600,7 @@ with tab_dashboard:
                 """, unsafe_allow_html=True)
 
         with col_dress:
-            st.markdown("<div style='font-size:0.9rem; font-weight:600; color:#94a3b8; margin-bottom:8px;'>👗 What to Wear</div>", unsafe_allow_html=True)
+            st.markdown("<div style='font-size:0.9rem; font-weight:600; color:#94a3b8; margin-bottom:8px;'>👔 OOTD</div>", unsafe_allow_html=True)
             
             temp = round(current.get('temperature', 20))
             cond = current.get('condition', '').lower()
@@ -2007,6 +2069,15 @@ with tab_public_health:
         render_public_health_tab()
     except Exception as e:
         st.error(f"Module error: {e}")
+
+with tab_monitoring:
+    try:
+        from features.monitoring_dashboard.ui import render_monitoring_tab
+        render_monitoring_tab()
+    except Exception as e:
+        st.error(f"Monitoring module error: {e}")
+        import traceback
+        st.code(traceback.format_exc())
 
 
 

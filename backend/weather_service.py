@@ -5,10 +5,31 @@ Fetches current, forecast, and historical weather data from Open-Meteo (free, no
 
 import httpx
 import numpy as np
+import traceback
 from datetime import datetime, timedelta
 from typing import Optional
 
 import os
+import time
+
+# Import monitoring and logging
+try:
+    from monitoring import track_api_call, record_query, record_error, track_latency
+    from logger_config import weather_logger as logger
+except ImportError:
+    # Fallback if monitoring isn't available yet
+    import logging
+    logger = logging.getLogger("weather_service")
+    def track_api_call(service, endpoint=""):
+        def decorator(func):
+            return func
+        return decorator
+    def record_query(*args, **kwargs): pass
+    def record_error(*args, **kwargs): pass
+    from contextlib import contextmanager
+    @contextmanager
+    def track_latency(service, endpoint=""):
+        yield {"status_code": 200, "success": True, "metadata": {}}
 
 # ──────────────────────────────────────────────
 # Open-Meteo API endpoints
@@ -61,10 +82,12 @@ WMO_ICONS = {
 }
 
 
+@track_api_call("OpenMeteo", "geocode")
 async def geocode_city(name: str) -> Optional[dict]:
     """Resolve a city name to lat/lon + metadata."""
     # Sanitize name: remove commas which can trip up Open-Meteo geocoding
     search_name = name.replace(",", " ").strip()
+    logger.info(f"Geocoding city: {search_name}", extra={"service": "OpenMeteo", "city": search_name})
     
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(GEOCODE_URL, params={"name": search_name, "count": 5, "language": "en"})
@@ -73,9 +96,13 @@ async def geocode_city(name: str) -> Optional[dict]:
 
     results = data.get("results")
     if not results:
+        logger.warning(f"City not found: {search_name}", extra={"service": "OpenMeteo", "city": search_name})
         return None
 
     r = results[0]
+    logger.info(f"Geocoded '{search_name}' -> {r.get('name')}, {r.get('country', '')} ({r['latitude']}, {r['longitude']})",
+                extra={"service": "OpenMeteo", "city": r.get("name")})
+                
     return {
         "name": r.get("name"),
         "country": r.get("country", ""),
@@ -97,8 +124,11 @@ async def geocode_city(name: str) -> Optional[dict]:
     }
 
 
+@track_api_call("Nominatim", "reverse_geocode")
 async def reverse_geocode(lat: float, lon: float) -> Optional[dict]:
     """Reverse-geocode coordinates to a place name using Nominatim (OSM)."""
+    logger.info(f"Reverse geocoding: ({lat}, {lon})", extra={"service": "Nominatim"})
+
     url = "https://nominatim.openstreetmap.org/reverse"
     params = {
         "lat": lat,
@@ -125,6 +155,8 @@ async def reverse_geocode(lat: float, lon: float) -> Optional[dict]:
             or addr.get("state")
             or data.get("display_name", "Unknown").split(",")[0]
         )
+        
+        logger.info(f"Reverse geocoded ({lat}, {lon}) -> {name}", extra={"service": "Nominatim", "city": name})
 
         return {
             "name": name,
@@ -136,7 +168,10 @@ async def reverse_geocode(lat: float, lon: float) -> Optional[dict]:
             "population": None,
             "all_results": [],
         }
-    except Exception:
+    except Exception as e:
+        logger.error(f"Reverse geocode failed: {e}", extra={"service": "Nominatim"}, exc_info=True)
+        record_error("Nominatim", type(e).__name__, str(e), traceback.format_exc())
+        
         # Fallback: return a basic geo dict with coordinates as name
         return {
             "name": f"{round(lat, 2)}°, {round(lon, 2)}°",
@@ -150,50 +185,48 @@ async def reverse_geocode(lat: float, lon: float) -> Optional[dict]:
         }
 
 
+@track_api_call("OpenWeatherMap", "current_weather")
 async def get_current_weather(lat: float, lon: float) -> dict:
     """Fetch current weather conditions using OpenWeatherMap API."""
+    logger.info(f"Fetching current weather for ({lat}, {lon})", extra={"service": "OpenWeatherMap"})
+
     api_key = os.getenv("OPENWEATHER_API_KEY", "")
     if not api_key:
-        raise ValueError("OPENWEATHER_API_KEY clearly not found in environment variables.")
+        logger.error("OPENWEATHER_API_KEY not found", extra={"service": "OpenWeatherMap"})
+        raise ValueError("OPENWEATHER_API_KEY not found in environment variables.")
 
-    params = {
-        "lat": lat,
-        "lon": lon,
-        "appid": api_key,
-        "units": "metric" # Returns temp in Celsius, wind in m/s
-    }
-    
+    params = {"lat": lat, "lon": lon, "appid": api_key, "units": "metric"}
+
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(OWM_CURRENT_URL, params=params)
         resp.raise_for_status()
         data = resp.json()
 
-    # OpenWeather places weather condition info in a list 
     owm_condition_id = data["weather"][0]["id"] if "weather" in data and len(data["weather"]) > 0 else 800
     wmo_code = OWM_TO_WMO.get(owm_condition_id, 0)
-    
-    # Calculate precipitation (1h)
+
     rain = data.get("rain", {}).get("1h", 0)
     snowfall = data.get("snow", {}).get("1h", 0)
     total_precip = rain + snowfall
-    
-    # OWM provides wind speed in m/s natively, convert to km/h to match existing UI
+
     wind_kmh = round(data["wind"].get("speed", 0) * 3.6, 1)
     gusts_kmh = round(data["wind"].get("gust", 0) * 3.6, 1) if "gust" in data["wind"] else 0
-    
-    # Determine daylight vs night from sys sunrise/sunset times
+
     now_ts = data.get("dt", 0)
     sunrise = data.get("sys", {}).get("sunrise", 0)
     sunset = data.get("sys", {}).get("sunset", 0)
     is_day = 1 if sunrise <= now_ts <= sunset else 0
+
+    condition = WMO_CODES.get(wmo_code, data["weather"][0]["main"] if data.get("weather") else "Unknown")
+    logger.info(f"Current weather: {data['main']['temp']}°C, {condition}",
+                extra={"service": "OpenWeatherMap", "city": data.get("name", "")})
 
     return {
         "temperature": data["main"]["temp"],
         "feels_like": data["main"]["feels_like"],
         "humidity": data["main"]["humidity"],
         "precipitation": total_precip,
-        "rain": rain,
-        "snowfall": snowfall,
+        "rain": rain, "snowfall": snowfall,
         "cloud_cover": data["clouds"].get("all", 0),
         "wind_speed": wind_kmh,
         "wind_direction": data["wind"].get("deg", 0),
@@ -201,18 +234,20 @@ async def get_current_weather(lat: float, lon: float) -> dict:
         "pressure": data["main"].get("pressure", 0),
         "is_day": bool(is_day),
         "weather_code": wmo_code,
-        "condition": WMO_CODES.get(wmo_code, data["weather"][0]["main"] if data.get("weather") else "Unknown"),
+        "condition": condition,
         "icon": WMO_ICONS.get(wmo_code, "cloudy"),
         "units": {"temperature": "°C", "wind_speed": "km/h", "precipitation": "mm"},
         "time": datetime.utcfromtimestamp(now_ts).isoformat() if now_ts else datetime.utcnow().isoformat(),
     }
 
 
+@track_api_call("OpenMeteo", "forecast")
 async def get_forecast(lat: float, lon: float, days: int = 7) -> dict:
     """Fetch hourly + daily forecast."""
+    logger.info(f"Fetching {days}-day forecast for ({lat}, {lon})", extra={"service": "OpenMeteo"})
+
     params = {
-        "latitude": lat,
-        "longitude": lon,
+        "latitude": lat, "longitude": lon,
         "hourly": "temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m,apparent_temperature,is_day",
         "daily": "temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,precipitation_probability_max,weather_code,wind_speed_10m_max,sunrise,sunset,uv_index_max",
         "timezone": "auto",
@@ -223,7 +258,6 @@ async def get_forecast(lat: float, lon: float, days: int = 7) -> dict:
         resp.raise_for_status()
         data = resp.json()
 
-    # Process daily data
     daily_raw = data.get("daily", {})
     daily = []
     times = daily_raw.get("time", [])
@@ -246,7 +280,6 @@ async def get_forecast(lat: float, lon: float, days: int = 7) -> dict:
             "icon": WMO_ICONS.get(code, "cloudy"),
         })
 
-    # Process hourly (next 48h for detail)
     hourly_raw = data.get("hourly", {})
     hourly = []
     h_times = hourly_raw.get("time", [])
@@ -266,14 +299,15 @@ async def get_forecast(lat: float, lon: float, days: int = 7) -> dict:
             "icon": WMO_ICONS.get(code, "cloudy"),
         })
 
+    logger.info(f"Forecast loaded: {len(daily)} days, {len(hourly)} hours", extra={"service": "OpenMeteo"})
     return {"daily": daily, "hourly": hourly, "timezone": data.get("timezone", "")}
 
 
+@track_api_call("OpenMeteo", "historical")
 async def get_historical_summary(lat: float, lon: float, years: int = 5) -> dict:
-    """
-    Fetch historical weather data and compute climate statistics.
-    Uses the same month window (±15 days) for context relevance.
-    """
+    """Fetch historical weather data and compute climate statistics."""
+    logger.info(f"Fetching {years}-year historical data for ({lat}, {lon})", extra={"service": "OpenMeteo"})
+
     now = datetime.utcnow()
     current_month = now.month
     current_day = now.day
@@ -284,14 +318,12 @@ async def get_historical_summary(lat: float, lon: float, years: int = 5) -> dict
 
     for y in range(1, years + 1):
         year = now.year - y
-        # Window: 30 days around the same date in prior years
         center = datetime(year, current_month, min(current_day, 28))
         start = center - timedelta(days=15)
         end = center + timedelta(days=15)
 
         params = {
-            "latitude": lat,
-            "longitude": lon,
+            "latitude": lat, "longitude": lon,
             "start_date": start.strftime("%Y-%m-%d"),
             "end_date": end.strftime("%Y-%m-%d"),
             "daily": "temperature_2m_max,temperature_2m_min,temperature_2m_mean,precipitation_sum,wind_speed_10m_max",
@@ -321,15 +353,22 @@ async def get_historical_summary(lat: float, lon: float, years: int = 5) -> dict
                 "total_precip": round(float(sum(precip)), 1) if precip else None,
                 "avg_precip": round(float(np.mean(precip)), 1) if precip else None,
             })
-        except Exception:
-            continue  # skip years with missing data
+            logger.debug(f"Historical year {year} loaded", extra={"service": "OpenMeteo"})
+        except Exception as e:
+            logger.warning(f"Historical data failed for year {year}: {e}",
+                           extra={"service": "OpenMeteo"}, exc_info=True)
+            record_error("OpenMeteo", type(e).__name__,
+                         f"Historical data {year}: {e}", traceback.format_exc())
+            continue
 
     if not all_temps:
+        logger.warning("No historical data available", extra={"service": "OpenMeteo"})
         return {"error": "No historical data available", "years_analyzed": 0}
 
-    # Compute climate normals
     temp_arr = np.array(all_temps)
     precip_arr = np.array(all_precip) if all_precip else np.array([0])
+
+    logger.info(f"Historical summary computed: {len(yearly_data)} years", extra={"service": "OpenMeteo"})
 
     return {
         "years_analyzed": len(yearly_data),
