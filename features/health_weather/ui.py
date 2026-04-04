@@ -3,6 +3,7 @@ Health Weather — Streamlit UI component.
 """
 
 import streamlit as st
+import asyncio
 from agent.tools import fetch_weather
 from .service import (
     get_health_report, fetch_openmeteo_health_data, fetch_air_quality,
@@ -10,201 +11,188 @@ from .service import (
     score_exercise_windows, compute_hydration, MEDICATION_RULES,
 )
 
+def get_temp_unit():
+    return st.session_state.get("temp_unit", "Celsius")
+
+def format_temp(val_c, include_unit=True):
+    if val_c is None: return "--"
+    pref = get_temp_unit()
+    val = (val_c * 9/5) + 32 if pref == "Fahrenheit" else val_c
+    unit = ("°F" if pref == "Fahrenheit" else "°C") if include_unit else ""
+    return f"{round(val)}{unit}"
+
+
+def run_async(coro):
+    """Helper to run an async function from a synchronous context."""
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop.run_until_complete(coro)
+
 
 def render_health_weather_tab(city: str):
     """Render the Health & Wellness Weather Index tab."""
-    st.subheader("🏥 Health & Wellness Weather Index")
-    st.caption(f"Personalized health-weather analysis for **{city}**")
+    st.markdown(f"## 🏥 Health & Wellness Dashboard: {city}")
+    st.markdown("""
+    <style>
+    .health-card {
+        padding: 1.5rem;
+        border-radius: 1rem;
+        background: var(--highlight);
+        border: 1px solid var(--border-color);
+        margin-bottom: 1rem;
+        transition: transform 0.2s;
+        color: var(--text-primary) !important;
+    }
+    .health-card:hover {
+        transform: translateY(-2px);
+        background: rgba(255, 255, 255, 0.08);
+    }
+    .status-badge {
+        padding: 0.2rem 0.6rem;
+        border-radius: 1rem;
+        font-size: 0.8rem;
+        font-weight: 600;
+        float: right;
+    }
+    .badge-low { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+    .badge-mod { background: rgba(234, 179, 8, 0.2); color: #facc15; }
+    .badge-high { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+    .badge-optimal { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+    </style>
+    """, unsafe_allow_html=True)
 
-    condition = st.text_input(
-        "Health condition (optional)",
-        placeholder="e.g., asthma, allergy, migraine, arthritis",
-        key="health_condition",
-    )
+    # Internal Tabs (Personal Tools removed)
+    tab_forecast, tab_insights = st.tabs([
+        "🌡️ Wellness Forecast", 
+        "🧠 Deep Insights"
+    ])
 
-    with st.spinner("Computing health indices..."):
+    # 1. Fetch data
+    with st.spinner("Analyzing your environment..."):
         weather_data = fetch_weather(city)
         if "error" in weather_data:
             st.error(f"Could not fetch weather data: {weather_data['error']}")
             return
-        report = get_health_report(city, weather_data, condition)
+        
+        # Get coordinates for Open-Meteo calls
+        loc = weather_data.get("location", {})
+        lat, lon = loc.get("lat"), loc.get("lon")
+        
+        health_data = fetch_openmeteo_health_data(lat, lon) if lat and lon else {"error": "No coords"}
+        aq_data = fetch_air_quality(lat, lon) if lat and lon else {"error": "No coords"}
 
-    idx = report.indices
-    index_data = [
-        ("🌿 Allergy", idx.allergy_index, "Pollen + humidity + wind"),
-        ("🫁 Asthma Risk", idx.asthma_risk, "AQI + temp swings + humidity"),
-        ("🧠 Migraine Trigger", idx.migraine_trigger, "Pressure changes + humidity"),
-        ("🌡️ Heat Stress", idx.heat_stress, "Heat index + UV + humidity"),
-        ("❄️ Cold Exposure", idx.cold_exposure, "Wind chill + precipitation"),
-        ("🦴 Joint Pain", idx.joint_pain, "Pressure drops + humidity shifts"),
-        ("😴 Sleep Quality", idx.sleep_quality, "Night temp + humidity (10=best)"),
-    ]
+    # ────── TAB 1: WELLNESS FORECAST ──────
+    with tab_forecast:
+        user_profile = st.session_state.get("user_profile", {})
+        health_condition = user_profile.get("health_issues", "General wellness")
+        
+        with st.spinner("Generating personalized advice..."):
+            try:
+                unit_p = st.session_state.get("temp_unit", "Celsius")
+                report = run_async(get_health_report(city, weather_data, health_condition, unit_p))
+                idx = report.indices
+                recommendation = report.recommendation
+            except Exception as e:
+                from .service import compute_health_indices
+                idx = compute_health_indices(weather_data)
+                recommendation = "Could not generate personalized recommendation at this time."
+        
+        st.markdown(f"""
+        <div style="background: rgba(59, 130, 246, 0.1); padding: 1.5rem; border-radius: 0.8rem; border-left: 5px solid #3b82f6; color: var(--text-primary); margin-bottom: 2rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <div style="font-weight: bold; color: #60a5fa;">💡 Personalized Guidance</div>
+                <div style="font-size: 0.75rem; color: var(--text-secondary);">Optimized for: {health_condition}</div>
+            </div>
+            {recommendation}
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("### Daily Health Risk Analysis")
+        st.caption("How today's weather patterns impact specific health conditions.")
 
-    cols = st.columns(4)
-    for i, (name, val, desc) in enumerate(index_data):
-        with cols[i % 4]:
-            with st.container(border=True):
-                st.metric(name, f"{val}/10")
-                # Color-coded badge
-                if "Sleep" in name:
-                    cls = "delta-good" if val >= 7 else ("delta-warn" if val >= 4 else "delta-bad")
-                    lbl = "Good" if val >= 7 else ("Fair" if val >= 4 else "Poor")
+        index_data = [
+            ("🌿 Allergy", idx.allergy_index, "Pollen, humidity, and wind speeds."),
+            ("🫁 Asthma Risk", idx.asthma_risk, "Air quality and rapid temperature shifts."),
+            ("🧠 Migraine", idx.migraine_trigger, "Barometric pressure swings and humidity."),
+            ("🌡️ Heat Stress", idx.heat_stress, "Combined effect of heat, UV, and humidity."),
+            ("❄️ Cold Risk", idx.cold_exposure, "Wind chill and freezing precipitation."),
+            ("🦴 Joint Pain", idx.joint_pain, "Pressure drops and humidity shifts."),
+            ("😴 Sleep Quality", idx.sleep_quality, "Night-time temperature and humidity comfort."),
+        ]
+
+        cols = st.columns(2)
+        for i, (name, val, desc) in enumerate(index_data):
+            with cols[i % 2]:
+                is_sleep = "Sleep" in name
+                if is_sleep:
+                    status = "Optimal" if val >= 7 else ("Fair" if val >= 4 else "Poor")
+                    badge_cls = "badge-optimal" if val >= 7 else ("badge-mod" if val >= 4 else "badge-high")
                 else:
-                    cls = "delta-good" if val <= 3 else ("delta-warn" if val <= 6 else "delta-bad")
-                    lbl = "Low" if val <= 3 else ("Moderate" if val <= 6 else "High")
-                st.markdown(f'<span class="delta-chip {cls}">{lbl}</span>', unsafe_allow_html=True)
-                st.caption(desc)
+                    status = "Low" if val <= 3 else ("Moderate" if val <= 6 else "High")
+                    badge_cls = "badge-low" if val <= 3 else ("badge-mod" if val <= 6 else "badge-high")
+                
+                with st.container():
+                    st.markdown(f"""
+                    <div class="health-card">
+                        <span class="status-badge {badge_cls}">{status}</span>
+                        <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--text-primary);">{name}</div>
+                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.8rem;">{desc}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    st.progress(val / 10.0)
+                    st.write("") 
 
-    st.divider()
-    with st.container(border=True):
-        st.markdown("**💡 Personalized Recommendation**")
-        st.write(report.recommendation)
-
-    # ═══════════════════════════════════════════════════
-    #  NEW SECTIONS: Advanced Health Features
-    # ═══════════════════════════════════════════════════
-
-    # Get coordinates for Open-Meteo calls
-    loc = weather_data.get("location", {})
-    lat = loc.get("lat")
-    lon = loc.get("lon")
-
-    if not lat or not lon:
-        st.caption("ℹ️ Advanced health features require location coordinates.")
-        return
-
-    # Fetch Open-Meteo health data (shared by SAD + Exercise)
-    with st.spinner("Loading advanced health data..."):
-        health_data = fetch_openmeteo_health_data(lat, lon)
-        aq_data = fetch_air_quality(lat, lon)
-
-    # ── 1. SAD Index ──────────────────────────────────
-    st.divider()
-    st.subheader("🧠 SAD Index (Seasonal Affective Disorder)")
-
-    if "error" not in health_data:
-        sad = compute_sad_index(health_data.get("daily", {}))
-
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            with st.container(border=True):
-                color = "🔴" if sad.risk_level == "High" else "🟡" if sad.risk_level == "Moderate" else "🟢"
-                st.metric(f"{color} SAD Index", f"{sad.sad_index}/100",
-                          help="0=No risk, 100=High risk")
-                cls = "delta-bad" if sad.risk_level == "High" else "delta-warn" if sad.risk_level == "Moderate" else "delta-good"
-                st.markdown(f'<span class="delta-chip {cls}">{sad.risk_level}</span>', unsafe_allow_html=True)
-                st.caption(f"Avg sunshine last 14 days: {sad.avg_sunshine_hrs_14d} hrs/day")
-                st.caption(f"Low-sun days (< 1hr): {sad.consecutive_low_sun_days}/14")
-        with col2:
-            with st.container(border=True):
+    # ────── TAB 2: DEEP INSIGHTS ──────
+    with tab_insights:
+        st.markdown("### 🧠 Seasonal Affective Disorder (SAD) Index")
+        if "error" not in health_data:
+            sad = compute_sad_index(health_data.get("daily", {}))
+            s_col1, s_col2 = st.columns([1, 2])
+            with s_col1:
+                sad_color = "#f87171" if sad.risk_level == "High" else ("#facc15" if sad.risk_level == "Moderate" else "#4ade80")
+                st.markdown(f"""
+                <div style="text-align: center; padding: 1.5rem; border: 2px solid {sad_color}; border-radius: 1rem; color: var(--text-primary);">
+                    <div style="font-size: 0.8rem; color: var(--text-secondary);">RISK SCORE</div>
+                    <div style="font-size: 2.2rem; font-weight: bold; color: {sad_color};">{sad.sad_index}/100</div>
+                    <div style="font-weight: 600;">{sad.risk_level} Risk</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with s_col2:
+                st.markdown(f"**Analysis Summary:**")
+                st.write(f"• Avg sunshine: {sad.avg_sunshine_hrs_14d} hrs/day (last 14 days)")
+                st.write(f"• Low-sun days: {sad.consecutive_low_sun_days}/14 days (< 1hr sun)")
                 st.info(f"💡 {sad.recommendation}")
-    else:
-        st.warning("Could not fetch sunshine data for SAD analysis.")
-
-    # ── 2. Medication Storage Alerts ──────────────────
-    st.divider()
-    st.subheader("💊 Medication Storage Monitor")
-
-    user_meds = st.multiselect(
-        "Select your medications",
-        options=list(MEDICATION_RULES.keys()),
-        format_func=lambda x: x.replace("_", " ").title(),
-        key="health_meds_select",
-    )
-
-    if user_meds:
-        alerts = check_medication_alerts(weather_data, user_meds)
-
-        if not alerts:
-            st.success("✅ Current conditions are safe for all your medications.")
-        for alert in alerts:
-            severity_icon = "🚨" if alert.severity == "HIGH" else "⚠️"
-            with st.expander(f"{severity_icon} {alert.medication.replace('_', ' ').title()} Alert"):
-                for issue in alert.issues:
-                    st.write(f"• {issue}")
-                st.caption(alert.note)
-    else:
-        st.caption("Select medications above to monitor storage conditions.")
-
-    # ── 3. Air Quality Composite ──────────────────────
-    st.divider()
-    st.subheader("🌬️ Air Quality & Activity Guide")
-
-    if "error" not in aq_data:
-        aq = compute_aq_composite(aq_data)
-
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            with st.container(border=True):
-                st.metric(f"{aq.icon} US AQI", aq.us_aqi if aq.us_aqi else "N/A")
-                st.caption("EPA standard index")
-        with col2:
-            with st.container(border=True):
-                st.metric("PM2.5", f"{aq.pm2_5} µg/m³" if aq.pm2_5 else "N/A")
-                st.caption("Fine particulate matter")
-        with col3:
-            with st.container(border=True):
-                st.metric("Worst Pollutant", aq.worst_pollutant)
-                st.caption("Primary concern")
-
-        with st.container(border=True):
-            st.markdown(f"**{aq.icon} {aq.tier}**")
-            for act in aq.activity_guidance:
-                st.write(f"• {act}")
-    else:
-        st.warning("Air quality data unavailable for this location.")
-
-    # ── 4. Outdoor Exercise Windows ───────────────────
-    st.divider()
-    st.subheader("🏃 Best Outdoor Exercise Windows")
-
-    if "error" not in health_data:
-        hourly = health_data.get("hourly", {})
-        windows = score_exercise_windows(hourly)
-
-        if windows:
-            medals = ["🥇", "🥈", "🥉"]
-            ex_cols = st.columns(3)
-            for i, w in enumerate(windows[:3]):
-                with ex_cols[i]:
-                    with st.container(border=True):
-                        st.markdown(f"### {medals[i]} {w.time_label}")
-                        st.metric("Score", f"{w.score}/100")
-                        st.caption(f"🌡️ {w.temp_c}°C · ☀️ UV {w.uv_index} · 🌧️ {w.precip_prob}% rain")
-        else:
-            st.info("No exercise window data available for today.")
-    else:
-        st.warning("Could not compute exercise windows.")
-
-    # ── 5. Hydration Estimator ────────────────────────
-    st.divider()
-    st.subheader("💧 Hydration Estimator")
-
-    cur = weather_data.get("current", {})
-    temp_c = cur.get("temp_c", 20)
-    humidity = cur.get("humidity", 50)
-
-    h_col1, h_col2 = st.columns(2)
-    with h_col1:
-        weight = st.number_input("Your weight (kg)", min_value=30.0, max_value=200.0,
-                                 value=70.0, step=5.0, key="hydration_weight")
-    with h_col2:
-        activity = st.selectbox("Activity level", [
-            "sedentary", "light_walk", "moderate_exercise", "intense_exercise",
-        ], format_func=lambda x: x.replace("_", " ").title(), key="hydration_activity")
-
-    hydration = compute_hydration(temp_c, humidity, activity, weight)
-
-    hyd_col1, hyd_col2, hyd_col3 = st.columns(3)
-    with hyd_col1:
-        with st.container(border=True):
-            st.metric("💧 Daily Need", f"{hydration.total_ml} ml")
-    with hyd_col2:
-        with st.container(border=True):
-            st.metric("🥤 Cups (8 oz)", hydration.cups_8oz)
-    with hyd_col3:
-        with st.container(border=True):
-            st.metric("🌡️ Current Temp", f"{temp_c}°C")
-            st.caption(f"Humidity: {humidity}%")
-
-    st.info(f"💡 **Tip:** {hydration.tip}")
+        
+        st.divider()
+        st.markdown("### 🌬️ Environment & Activity Guide")
+        if "error" not in aq_data:
+            aq = compute_aq_composite(aq_data)
+            aq_c1, aq_c2 = st.columns([1, 2])
+            with aq_c1:
+                st.metric("US EPA AQI", aq.us_aqi, help="Standard EPA index for air quality.")
+                st.caption(f"Worst Pollutant: {aq.worst_pollutant}")
+            with aq_c2:
+                st.markdown(f"**{aq.icon} {aq.tier}**")
+                for act in aq.activity_guidance:
+                    st.write(f"• {act}")
+        
+        st.divider()
+        st.markdown("### 🏃 Top Outdoor Exercise Windows")
+        if "error" not in health_data:
+            windows = score_exercise_windows(health_data.get("hourly", {}))
+            if windows:
+                ex_cols = st.columns(3)
+                medals = ["🥇", "🥈", "🥉"]
+                for i, w in enumerate(windows[:3]):
+                    with ex_cols[i]:
+                        st.markdown(f"**{medals[i]} {w.time_label}**")
+                        st.markdown(f"""
+                        <div style="background: var(--highlight); padding: 1rem; border-radius: 0.5rem; text-align: center; color: var(--text-primary);">
+                            <div style="font-size: 1.2rem; font-weight: bold;">{w.score}%</div>
+                            <div style="font-size: 0.7rem; color: var(--text-secondary);">OPTIMAL</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        st.caption(f"🌡️ {format_temp(w.temp_c)} · ☀️ UV {w.uv_index}")

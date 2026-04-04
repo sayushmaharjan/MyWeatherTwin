@@ -12,4 +12,6 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 from backend.llm_service import client
 
 MODEL = "llama-3.3-70b-versatile"
+MODEL_SMALL = "llama-3.1-8b-instant" # llama-3.1-8b-instant OR mixtral-8x7b
+
 LOG_FILE = Path(__file__).parent / "backend" / "agent_logs.txt"

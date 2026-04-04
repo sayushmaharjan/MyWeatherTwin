@@ -61,6 +61,9 @@ st.session_state.setdefault("otp_email", "")
 st.session_state.setdefault("otp_reg_data", None)
 st.session_state.setdefault("login_otp_step", False)
 st.session_state.setdefault("login_otp_user", None)
+st.session_state.setdefault("theme", "dark")
+st.session_state.setdefault("temp_unit", "C")
+
 
 def run_async(coro):
     """Helper to run an async function from a synchronous context."""
@@ -68,6 +71,20 @@ def run_async(coro):
     asyncio.set_event_loop(loop)
     return loop.run_until_complete(coro)
 
+
+
+# ─── Temp Helper ─────────────────────────────────
+def format_temp(celsius_val, include_unit=True):
+    if st.session_state.setdefault("temp_unit", "C") == "F":
+        val = (celsius_val * 9/5) + 32
+        unit = "°F"
+    else:
+        val = celsius_val
+        unit = "°C"
+    
+    if include_unit:
+        return f"{round(val)}{unit}"
+    return round(val)
 
 # ─── Data Fetching Helpers ───────────────────────
 def fetch_weather_by_city(city_name):
@@ -212,7 +229,7 @@ st.set_page_config(
 )
 
 # ─── Custom Dark CSS ─────────────────────────────
-st.markdown("""
+DARK_CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
@@ -223,7 +240,6 @@ st.markdown("""
 }
 
 /* Hide default streamlit elements */
-#MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 
 /* Remove excess top padding */
@@ -239,6 +255,7 @@ header[data-testid="stHeader"] {
     background: rgba(10,14,26,0.85) !important;
     backdrop-filter: blur(12px);
     border-bottom: 1px solid rgba(148,163,184,0.08);
+    color: #94a3b8;
 }
 
 /* Custom header */
@@ -467,8 +484,22 @@ iframe {
 }
 
 /* Favorite button specific color override */
-button[title="Remove from favorites"], button[title="Remove from favorites"] p, button[title="Remove from favorites"] span {
+[data-testid="element-container"]:has(.fav-heart-active) + [data-testid="element-container"] button,
+[data-testid="element-container"]:has(.fav-heart-active) + [data-testid="element-container"] button:hover,
+[data-testid="stElementContainer"]:has(.fav-heart-active) + [data-testid="stElementContainer"] button,
+[data-testid="stElementContainer"]:has(.fav-heart-active) + [data-testid="stElementContainer"] button:hover {
     color: #ef4444 !important;
+    border-color: rgba(239, 68, 68, 0.3) !important;
+    background: rgba(239, 68, 68, 0.08) !important;
+}
+[data-testid="element-container"]:has(.fav-heart-active) + [data-testid="element-container"] button span,
+[data-testid="element-container"]:has(.fav-heart-active) + [data-testid="element-container"] button p,
+[data-testid="element-container"]:has(.fav-heart-active) + [data-testid="element-container"] button svg,
+[data-testid="stElementContainer"]:has(.fav-heart-active) + [data-testid="stElementContainer"] button span,
+[data-testid="stElementContainer"]:has(.fav-heart-active) + [data-testid="stElementContainer"] button p,
+[data-testid="stElementContainer"]:has(.fav-heart-active) + [data-testid="stElementContainer"] button svg {
+    color: #ef4444 !important;
+    fill: #ef4444 !important;
 }
 
 /* Form submit buttons (always primary) */
@@ -692,7 +723,617 @@ button[title="Remove from favorites"], button[title="Remove from favorites"] p, 
 }
 .wt-reminder-delete:hover { opacity: 1; }
 </style>
-""", unsafe_allow_html=True)
+"""
+
+LIGHT_CSS = """
+<style>
+    :root {
+        --app-bg-1: #e2e8f0;
+        --app-bg-2: #f8fafc;
+        --app-bg-3: #f1f5f9;
+        --sidebar-bg: #f8fafc;
+        --card-rgb: 255, 255, 255;
+        --text-primary: #000000;
+        --text-secondary: #475569;
+        --border-color: rgba(15, 23, 42, 0.1);
+        --highlight: rgba(15, 23, 42, 0.04);
+        --btn-primary-bg: #cbd5e1;
+        --btn-primary-text: #0f172a;
+        --btn-secondary-bg: #e2e8f0;
+        --btn-secondary-text: #0f172a;
+    }
+    </style>
+<style>
+    div.stButton button:not([title="Remove from favorites"]),
+    div.stFormSubmitButton button,
+    div.stDownloadButton button,
+    button[data-testid="baseButton-primary"]:not([title="Remove from favorites"]),
+    button[data-testid="baseButton-secondary"]:not([title="Remove from favorites"]) {
+        background: #cbd5e1 !important;
+        background-color: #cbd5e1 !important;
+        background-image: none !important;
+        color: #000000 !important;
+        border-color: #94a3b8 !important;
+    }
+    div.stButton button:not([title="Remove from favorites"]) p,
+    div.stFormSubmitButton button p,
+    div.stDownloadButton button p,
+    button[data-testid="baseButton-primary"]:not([title="Remove from favorites"]) p,
+    button[data-testid="baseButton-secondary"]:not([title="Remove from favorites"]) p {
+        color: #000000 !important;
+    }
+    div.stButton button:not([title="Remove from favorites"]):hover,
+    div.stFormSubmitButton button:hover,
+    div.stDownloadButton button:hover {
+        background: #94a3b8 !important;
+        background-color: #94a3b8 !important;
+        color: #000000 !important;
+        border-color: #475569 !important;
+    }
+    div.stButton button:not([title="Remove from favorites"]):hover p,
+    div.stFormSubmitButton button:hover p,
+    div.stDownloadButton button:hover p {
+        color: #000000 !important;
+    }
+    /* Ensure fav heart stays red in light theme */
+    [data-testid="element-container"]:has(.fav-heart-active) + [data-testid="element-container"] button,
+    [data-testid="element-container"]:has(.fav-heart-active) + [data-testid="element-container"] button:hover,
+    [data-testid="stElementContainer"]:has(.fav-heart-active) + [data-testid="stElementContainer"] button,
+    [data-testid="stElementContainer"]:has(.fav-heart-active) + [data-testid="stElementContainer"] button:hover {
+        color: #ef4444 !important;
+        border-color: rgba(239, 68, 68, 0.3) !important;
+        background: rgba(239, 68, 68, 0.08) !important;
+        background-color: rgba(239, 68, 68, 0.08) !important;
+    }
+    [data-testid="element-container"]:has(.fav-heart-active) + [data-testid="element-container"] button span,
+    [data-testid="element-container"]:has(.fav-heart-active) + [data-testid="element-container"] button p,
+    [data-testid="stElementContainer"]:has(.fav-heart-active) + [data-testid="stElementContainer"] button span,
+    [data-testid="stElementContainer"]:has(.fav-heart-active) + [data-testid="stElementContainer"] button p {
+        color: #ef4444 !important;
+    }
+    </style>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* Dark theme overrides */
+.stApp {
+    background: linear-gradient(180deg, var(--app-bg-1) 0%, var(--app-bg-2) 50%, var(--app-bg-3) 100%);
+    font-family: 'Inter', sans-serif;
+}
+
+/* Hide default streamlit elements */
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+
+/* Remove excess top padding */
+.block-container { padding-top: 1rem !important; }
+section[data-testid="stSidebar"] {
+    background-color: var(--sidebar-bg) !important; /* Slightly darker than gradient */
+    border-right: 1px solid var(--border-color) !important;
+    color: var(--text-primary) !important;
+}
+section[data-testid="stSidebar"] > div:first-child { padding-top: 1rem; }
+
+/* Force Streamlit native widgets in the sidebar & main app to be visible */
+[data-testid="stSidebar"] p, 
+[data-testid="stSidebar"] label,
+[data-testid="stSidebarCollapseButton"] svg,
+[data-testid="stHeader"] svg,
+.stRadio p, 
+.stSelectbox p, 
+.stTextInput p, 
+.stTextArea p, 
+.stExpander summary p,
+[data-testid="stMarkdownContainer"] h1,
+[data-testid="stMarkdownContainer"] h2,
+[data-testid="stMarkdownContainer"] h3,
+[data-testid="stMarkdownContainer"] h4,
+[data-testid="stMarkdownContainer"] h5,
+[data-testid="stMarkdownContainer"] h6,
+[data-testid="stMarkdownContainer"] p {
+    color: var(--text-primary);
+    fill: var(--text-primary);
+}
+
+/* Ensure the selected text inside dropdowns is also visible */
+[data-baseweb="select"] div {
+    color: var(--text-primary) !important;
+}
+
+/* Streamlit header — keep visible for sidebar toggle */
+header[data-testid="stHeader"] {
+    background: rgba(var(--card-rgb),0.85) !important;
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* Custom header */
+.wt-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 24px;
+}
+.wt-logo-icon {
+    width: 42px; height: 42px;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    box-shadow: 0 0 30px rgba(59,130,246,0.15);
+}
+.wt-logo-text {
+    font-size: 1.5rem; font-weight: 700;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.wt-logo-tag {
+    font-size: 0.7rem; color: var(--text-secondary);
+    text-transform: uppercase; letter-spacing: 0.5px;
+}
+
+/* Card styling */
+.wt-card {
+    background: rgba(var(--card-rgb), 0.7);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 24px;
+    backdrop-filter: blur(12px);
+    transition: 250ms;
+}
+.wt-card:hover {
+    border-color: rgba(59,130,246,0.3);
+    box-shadow: 0 0 30px rgba(59,130,246,0.15);
+}
+
+/* Delta chips for imported features */
+.chip-row { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+.delta-chip { display:inline-block; padding:2px 10px; border-radius:6px; font-size:0.75rem; font-weight:600; margin-top:4px; }
+.delta-good { background:rgba(16,185,129,0.15); color:#10b981; }
+.delta-warn { background:rgba(245,158,11,0.15); color:#f59e0b; }
+.delta-bad { background:rgba(244,63,94,0.15); color:#f43f5e; }
+
+/* Temperature display */
+.wt-temp-big {
+    font-size: 4rem; font-weight: 800; line-height: 1;
+    background: linear-gradient(135deg, #06b6d4, #3b82f6);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.wt-temp-feels {
+    font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;
+}
+
+/* Condition display */
+.wt-condition-icon { font-size: 3.5rem; margin-bottom: 4px; }
+.wt-condition-text { font-size: 1.3rem; font-weight: 600; color: var(--text-primary); }
+.wt-location { font-size: 0.85rem; color: var(--text-secondary); margin-top: 2px; }
+
+/* Detail items */
+.wt-detail {
+    background: var(--highlight);
+    border-radius: 8px;
+    padding: 12px 14px;
+    text-align: center;
+}
+.wt-detail-icon { font-size: 1.2rem; }
+.wt-detail-label { font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.3px; }
+.wt-detail-value { font-size: 1rem; font-weight: 600; color: var(--text-primary); }
+
+/* Forecast card */
+.wt-forecast-card {
+    background: rgba(var(--card-rgb),0.7);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 14px 10px;
+    text-align: center;
+    min-width: 110px;
+}
+.wt-forecast-day { font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; }
+.wt-forecast-icon { font-size: 1.8rem; margin: 6px 0; }
+.wt-forecast-high { font-size: 1.1rem; font-weight: 700; color: var(--text-primary); }
+.wt-forecast-low { font-size: 0.85rem; color: var(--text-secondary); }
+.wt-forecast-precip { font-size: 0.7rem; color: #06b6d4; margin-top: 4px; }
+
+/* Severity badges */
+.wt-badge {
+    display: inline-block;
+    font-size: 0.65rem; font-weight: 600;
+    padding: 3px 10px; border-radius: 20px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+}
+.wt-badge-normal { background: rgba(16,185,129,0.15); color: #10b981; }
+.wt-badge-mild { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.wt-badge-moderate { background: rgba(249,115,22,0.15); color: #f97316; }
+.wt-badge-significant { background: rgba(244,63,94,0.15); color: #f43f5e; }
+.wt-badge-extreme { background: rgba(244,63,94,0.25); color: #f43f5e; border: 1px solid rgba(244,63,94,0.3); }
+
+/* AI Insight banner */
+.wt-insight {
+    background: linear-gradient(145deg, rgba(59,130,246,0.05), rgba(139,92,246,0.05));
+    border: 1px solid rgba(59,130,246,0.3);
+    border-radius: 16px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+}
+.wt-insight-label { font-size: 0.65rem; font-weight: 600; color: #3b82f6; text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* Stat items */
+.wt-stat {
+    background: var(--highlight);
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+.wt-stat-label { font-size: 0.68rem; color: var(--text-secondary); text-transform: uppercase; }
+.wt-stat-value { font-size: 1.05rem; font-weight: 600; color: var(--text-primary); }
+
+/* Section title */
+.wt-section-title {
+    font-size: 0.8rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 1px;
+    color: var(--text-secondary); margin-bottom: 16px;
+}
+
+/* Map container */
+.wt-map-hint {
+    font-size: 0.75rem; color: var(--text-secondary);
+    text-align: center; margin-top: 6px;
+    font-style: italic;
+}
+
+/* Metric overrides */
+[data-testid="stMetric"] {
+    background: var(--highlight);
+    border-radius: 8px;
+    padding: 12px;
+}
+[data-testid="stMetricLabel"] { color: var(--text-secondary) !important; }
+[data-testid="stMetricValue"] { color: var(--text-primary) !important; }
+
+/* Tab styling — subtle fill variant */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 4px;
+    background: transparent;
+    border-bottom: 1px solid var(--border-color);
+    padding: 0 0 4px 0;
+    border-radius: 0;
+}
+.stTabs [data-baseweb="tab"] {
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    font-size: 0.82rem;
+    padding: 8px 16px;
+    transition: color 0.2s, background 0.2s;
+    border-bottom: none;
+}
+.stTabs [data-baseweb="tab"] p {
+    color: var(--text-secondary);
+    font-weight: inherit;
+    font-size: inherit;
+}
+.stTabs [data-baseweb="tab"]:hover, .stTabs [data-baseweb="tab"]:hover p {
+    color: var(--text-primary);
+    background: var(--highlight);
+}
+.stTabs [aria-selected="true"] {
+    background: rgba(59,130,246,0.12) !important;
+    color: #3b82f6 !important;
+    font-weight: 600;
+}
+.stTabs [aria-selected="true"] p {
+    color: #3b82f6 !important;
+    font-weight: 600;
+}
+
+/* Chat styling */
+.stChatMessage {
+    background: rgba(var(--card-rgb),0.7) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 12px !important;
+}
+
+/* folium iframe */
+iframe {
+    border-radius: 16px !important;
+    border: 1px solid var(--border-color) !important;
+}
+
+/* Primary buttons */
+.stButton > button[data-testid="baseButton-primary"] {
+    background: var(--btn-primary-bg) !important;
+    border: none !important;
+    color: var(--btn-primary-text) !important;
+    font-weight: 600 !important;
+    border-radius: 10px !important;
+    padding: 8px 20px !important;
+    font-size: 0.88rem !important;
+    letter-spacing: 0.2px !important;
+    transition: opacity 0.18s, box-shadow 0.18s, transform 0.12s !important;
+}
+.stButton > button[data-testid="baseButton-primary"] p, .stFormSubmitButton > button p {
+    color: var(--btn-primary-text) !important;
+}
+.stButton > button[data-testid="baseButton-primary"]:hover {
+    opacity: 0.92 !important;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.15) !important;
+    transform: translateY(-1px) !important;
+}
+.stButton > button[data-testid="baseButton-primary"]:active {
+    transform: translateY(0px) !important;
+}
+
+/* Secondary/default buttons */
+.stButton > button[data-testid="baseButton-secondary"] {
+    background: var(--btn-secondary-bg) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--btn-secondary-text) !important;
+    font-weight: 500 !important;
+    border-radius: 10px !important;
+    padding: 8px 20px !important;
+    font-size: 0.88rem !important;
+    transition: all 0.2s !important;
+}
+.stButton > button[data-testid="baseButton-secondary"] p {
+    color: var(--btn-secondary-text) !important;
+}
+.stButton > button[data-testid="baseButton-secondary"]:hover {
+    opacity: 0.85 !important;
+    border-color: var(--text-secondary) !important;
+    color: var(--btn-secondary-text) !important;
+}
+.stButton > button[data-testid="baseButton-secondary"]:active {
+    opacity: 0.7 !important;
+}
+
+/* ── Favorite heart button: red when favorited ── */
+[data-testid="element-container"]:has(.fav-heart-active) + [data-testid="element-container"] button,
+[data-testid="element-container"]:has(.fav-heart-active) + [data-testid="element-container"] button:hover,
+[data-testid="stElementContainer"]:has(.fav-heart-active) + [data-testid="stElementContainer"] button,
+[data-testid="stElementContainer"]:has(.fav-heart-active) + [data-testid="stElementContainer"] button:hover {
+    color: #ef4444 !important;
+    border-color: rgba(239, 68, 68, 0.3) !important;
+    background: rgba(239, 68, 68, 0.08) !important;
+}
+[data-testid="element-container"]:has(.fav-heart-active) + [data-testid="element-container"] button span,
+[data-testid="element-container"]:has(.fav-heart-active) + [data-testid="element-container"] button p,
+[data-testid="element-container"]:has(.fav-heart-active) + [data-testid="element-container"] button svg,
+[data-testid="stElementContainer"]:has(.fav-heart-active) + [data-testid="stElementContainer"] button span,
+[data-testid="stElementContainer"]:has(.fav-heart-active) + [data-testid="stElementContainer"] button p,
+[data-testid="stElementContainer"]:has(.fav-heart-active) + [data-testid="stElementContainer"] button svg {
+    color: #ef4444 !important;
+    fill: #ef4444 !important;
+}
+
+
+.stFormSubmitButton > button {
+    background: var(--btn-primary-bg) !important;
+    border: none !important;
+    color: var(--btn-primary-text) !important;
+    font-weight: 600 !important;
+    border-radius: 10px !important;
+    padding: 10px 20px !important;
+    font-size: 0.9rem !important;
+    letter-spacing: 0.2px !important;
+    transition: opacity 0.18s, box-shadow 0.18s, transform 0.12s !important;
+    width: 100% !important;
+}
+.stFormSubmitButton > button:hover {
+    opacity: 0.92 !important;
+    box-shadow: 0 6px 24px rgba(59,130,246,0.35) !important;
+    transform: translateY(-1px) !important;
+}
+
+/* Text input — flat 8px radius, NOT rounded */
+.stTextInput input {
+    background: rgba(var(--card-rgb), 0.7) !important;
+    border: 1px solid rgba(148,163,184,0.12) !important;
+    border-radius: 8px !important;
+    color: var(--text-primary) !important;
+    padding: 10px 14px !important;
+    font-size: 0.88rem !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
+}
+.stTextInput input:focus {
+    border-color: rgba(59,130,246,0.5) !important;
+    box-shadow: 0 0 0 3px rgba(59,130,246,0.1) !important;
+    outline: none !important;
+}
+.stTextInput input::placeholder {
+    color: var(--text-secondary) !important; /* Made significantly brighter */
+    opacity: 0.8 !important;
+}
+/* Auth page — full-screen centered background */
+.auth-page-bg {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(ellipse 90% 55% at 50% -5%, rgba(59,130,246,0.15) 0%, transparent 65%),
+        radial-gradient(ellipse 55% 35% at 85% 85%, rgba(139,92,246,0.1) 0%, transparent 60%),
+        radial-gradient(ellipse 40% 30% at 10% 70%, rgba(6,182,212,0.08) 0%, transparent 55%),
+        var(--app-bg-3) !important;
+    z-index: -1;
+}
+.auth-outer {
+    display: flex;
+    min-height: 100vh;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+.auth-card {
+    width: 100%;
+    max-width: 440px;
+    background: rgba(var(--card-rgb), 0.85); /* Use dynamic card rgb for auth card too */
+    border: 1px solid var(--border-color);
+    border-radius: 18px;
+    padding: 40px 36px 36px 36px;
+    backdrop-filter: blur(28px);
+    box-shadow: 0 0 0 1px var(--highlight) inset,
+                0 24px 64px rgba(0,0,0,0.6),
+                0 0 80px rgba(59,130,246,0.06);
+}
+.auth-logo {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 28px;
+}
+.auth-logo-icon {
+    width: 52px; height: 52px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.6rem;
+    box-shadow: 0 8px 20px rgba(59,130,246,0.35);
+    margin-bottom: 14px;
+}
+.auth-headline {
+    font-size: 1.65rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    text-align: center;
+    margin: 0 0 6px 0;
+    letter-spacing: -0.3px;
+}
+.auth-subline {
+    font-size: 0.83rem;
+    color: var(--text-secondary);
+    text-align: center;
+    margin: 0;
+}
+.auth-subline a {
+    color: #60a5fa;
+    text-decoration: none;
+    font-weight: 500;
+    cursor: pointer;
+}
+.auth-subline a:hover { text-decoration: underline; }
+
+
+/* Field labels */
+.auth-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 5px;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+}
+
+/* Divider */
+.auth-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 18px 0;
+    color: #334155;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+}
+.auth-divider::before, .auth-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border-color);
+}
+
+/* Legacy classes kept for compat */
+.login-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 16px 0;
+    color: #475569;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+.login-divider::before, .login-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(148,163,184,0.12);
+}
+.login-feature-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 24px;
+}
+.login-feature-item {
+    background: var(--highlight);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 16px 8px;
+    text-align: center;
+    transition: border-color 0.2s;
+}
+.login-feature-item:hover { border-color: rgba(59,130,246,0.2); }
+.login-feature-item .feat-icon { font-size: 1.5rem; margin-bottom: 6px; }
+.login-feature-item .feat-label { font-size: 0.7rem; color: var(--text-secondary); font-weight: 500; }
+.login-brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 40px 20px;
+}
+.login-brand-title {
+    font-size: 2.8rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin: 12px 0 8px 0;
+}
+.login-brand-desc {
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+    text-align: center;
+    line-height: 1.6;
+    max-width: 320px;
+}
+.login-card {
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(148,163,184,0.08);
+    border-radius: 18px;
+    padding: 36px 32px;
+    backdrop-filter: blur(24px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5), inset 0 1px 0 var(--highlight);
+}
+.login-card-header { text-align: center; margin-bottom: 28px; }
+.login-card-header h2 { font-size: 1.6rem; font-weight: 700; color: var(--text-primary); margin: 0 0 6px 0; }
+.login-card-header p { font-size: 0.85rem; color: var(--text-secondary); margin: 0; }
+/* Reminder card styling */
+.wt-reminder-card {
+    background: var(--highlight);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 10px;
+    position: relative;
+    border-left: 3px solid #3b82f6;
+}
+.wt-reminder-title { font-weight: 700; font-size: 0.9rem; color: var(--text-primary); margin-bottom: 2px; }
+.wt-reminder-meta { font-size: 0.72rem; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; }
+.wt-reminder-delete { 
+    color: #ef4444; 
+    font-size: 0.8rem; 
+    cursor: pointer; 
+    opacity: 0.6;
+    transition: opacity 0.2s;
+}
+.wt-reminder-delete:hover { opacity: 1; }
+</style>
+"""
+
+st.markdown(DARK_CSS if st.session_state.theme == "dark" else LIGHT_CSS, unsafe_allow_html=True)
+
 
 st.session_state.checked_cookie = False
 
@@ -713,20 +1354,11 @@ if not st.session_state.logged_in and not st.session_state.checked_cookie:
 def _show_auth_page():
     """Auth gateway — premium centered card design."""
 
-    # ── Full-screen background glow (CSS overlay) ──
-    st.markdown("""
-    <style>
-    .stApp > div:first-child {
-        background:
-            radial-gradient(ellipse 90% 55% at 50% -5%, rgba(59,130,246,0.2) 0%, transparent 65%),
-            radial-gradient(ellipse 55% 35% at 85% 85%, rgba(139,92,246,0.14) 0%, transparent 60%),
-            radial-gradient(ellipse 40% 30% at 10% 70%, rgba(6,182,212,0.08) 0%, transparent 55%),
-            #070c18 !important;
-    }
-    /* hide the default streamlit top-bar padding for auth page */
-    section.main > div { padding-top: 0 !important; }
-    </style>
-    """, unsafe_allow_html=True)
+    # Mount the isolated background layer (automatically unmounts when we leave the page)
+    st.markdown('<div class="auth-page-bg"></div>', unsafe_allow_html=True)
+    
+    # Hide the default Streamlit padding just for this page
+    st.markdown("""<style> section.main > div { padding-top: 0 !important; } </style>""", unsafe_allow_html=True)
 
     # ── Track active login tab in session state ──
     if "login_tab" not in st.session_state:
@@ -782,7 +1414,7 @@ def _show_auth_page():
                         key="login_pass",
                         label_visibility="collapsed"
                     )
-                    remember_me = st.checkbox("Keep me signed in for a week", value=False)
+                    remember_me = st.checkbox("Keep me signed in for 24 hours", value=False)
 
                     # Inline email validation hint
                     if login_email and "@" not in login_email:
@@ -791,22 +1423,48 @@ def _show_auth_page():
                     login_submit = st.form_submit_button("Sign In", use_container_width=True)
 
                     if login_submit:
-                        if not login_email or not login_password:
-                            st.error("Please fill in both fields.")
+                        if not login_email:
+                            st.error("Please enter your email.")
                         elif "@" not in login_email:
                             st.error("Please enter a valid email address.")
                         else:
                             with st.spinner("Authenticating..."):
-                                token_check = db.check_user_has_active_token(login_email.strip().lower())
-                                result = token_check if token_check["success"] else db.authenticate_by_password(login_email.strip().lower(), login_password)
+                                # Check if they have a valid cookie for a passwordless login
+                                token = cookie_manager.get(cookie="weathertwin_remember")
+                                result = None
+                                if token:
+                                    res = db.verify_remember_token(token)
+                                    # If cookie is valid and the typed email matches the cookie's user email
+                                    if res["success"] and res["user"]["email"] == login_email.strip().lower():
+                                        result = res
+
+                                if not result:
+                                    if not login_password:
+                                        result = {"success": False, "error": "Password is required."}
+                                    else:
+                                        result = db.authenticate_by_password(login_email.strip().lower(), login_password)
 
                             if result["success"]:
                                 st.session_state.logged_in = True
                                 st.session_state.user_info = result["user"]
+                                
+                                # Pre-fetch user profile and weather data to ensure a smooth transition
+                                profile_res = db.get_user_profile(result["user"]["id"])
+                                if profile_res.get("success"):
+                                    st.session_state.user_profile = profile_res.get("profile", {})
+                                    home_addr = st.session_state.user_profile.get("home_address")
+                                    if home_addr:
+                                        with st.spinner("Preparing your dashboard..."):
+                                            data = fetch_weather_by_city(home_addr)
+                                            if data:
+                                                st.session_state.weather_data = data
+                                                st.session_state.current_city = data["city"]["name"]
+                                                st.session_state.auto_located = True
+                                
                                 if remember_me:
                                     token = str(uuid.uuid4())
                                     import datetime as dt
-                                    expires = dt.datetime.now() + dt.timedelta(days=7)
+                                    expires = dt.datetime.now() + dt.timedelta(days=1)
                                     db.set_remember_token(result["user"]["id"], token, expires)
                                     cookie_manager.set("weathertwin_remember", token, expires_at=expires)
                                 st.rerun()
@@ -825,7 +1483,7 @@ def _show_auth_page():
                             key="otp_login_user",
                             label_visibility="collapsed"
                         )
-                        remember_me = st.checkbox("Keep me signed in for a week", value=False, key="otp_remember_1")
+                        remember_me = st.checkbox("Keep me signed in for 24 hours", value=False, key="otp_remember_1")
                         send_otp_btn = st.form_submit_button("Send OTP to my email", use_container_width=True)
 
                         if send_otp_btn:
@@ -840,7 +1498,7 @@ def _show_auth_page():
                                         if remember_me:
                                             token = str(uuid.uuid4())
                                             import datetime as dt
-                                            expires = dt.datetime.now() + dt.timedelta(days=7)
+                                            expires = dt.datetime.now() + dt.timedelta(days=1)
                                             db.set_remember_token(token_check["user"]["id"], token, expires)
                                             cookie_manager.set("weathertwin_remember", token, expires_at=expires)
                                         st.rerun()
@@ -891,7 +1549,7 @@ def _show_auth_page():
                                     if st.session_state.get("otp_wants_remember"):
                                         token = str(uuid.uuid4())
                                         import datetime as dt
-                                        expires = dt.datetime.now() + dt.timedelta(days=7)
+                                        expires = dt.datetime.now() + dt.timedelta(days=1)
                                         db.set_remember_token(st.session_state.user_info["id"], token, expires)
                                         cookie_manager.set("weathertwin_remember", token, expires_at=expires)
                                     st.session_state.login_otp_step = False
@@ -983,7 +1641,7 @@ def _show_auth_page():
             <div class="auth-logo">
                 <div class="auth-logo-icon">📧</div>
                 <h1 class="auth-headline">Verify Email</h1>
-                <p class="auth-subline">We sent a 6-digit code to<br><strong style="color:#f1f5f9;">{masked}</strong></p>
+                <p class="auth-subline">We sent a 6-digit code to<br><strong style="color:var(--text-primary);">{masked}</strong></p>
             </div>
             """, unsafe_allow_html=True)
 
@@ -1032,8 +1690,8 @@ with st.sidebar:
     <div style="display:flex;align-items:center;gap:12px;padding:8px 0 12px 0;border-bottom:1px solid rgba(148,163,184,0.1);margin-bottom:12px;">
         <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#8b5cf6);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:0.9rem;flex-shrink:0;">{_initial}</div>
         <div>
-            <div style="font-size:0.85rem;font-weight:600;color:#f1f5f9;">{_uname}</div>
-            <div style="font-size:0.7rem;color:#64748b;">{_uemail}</div>
+            <div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);">{_uname}</div>
+            <div style="font-size:0.7rem;color:var(--text-secondary);">{_uemail}</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1320,14 +1978,14 @@ except Exception:
 user_display = st.session_state.user_info["username"] if st.session_state.user_info else ""
 _user_initial = user_display[0].upper() if user_display else "U"
 
-hdr_logo, hdr_search, hdr_search_btn, hdr_user, hdr_logout = st.columns([2, 4, 1, 2, 1])
+hdr_logo, hdr_search, hdr_search_btn, hdr_user, hdr_temp, hdr_theme, hdr_logout = st.columns([2, 3, 0.3, 1, 0.4, 0.4, 0.4])
 with hdr_logo:
     st.markdown(f"""
-    <div style="display:flex;align-items:center;gap:10px;padding:4px 0;">
+    <div style="display:flex;align-items:center;gap:10px;">
         <span style="font-size:1.6rem;">🌤️</span>
         <div>
-            <div style="font-size:1rem;font-weight:700;color:#f8fafc;line-height:1.1;">WeatherTwin</div>
-            <div style="font-size:0.6rem;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">AI Climate Intelligence</div>
+            <div style="font-size:1rem;font-weight:700;color:var(--text-primary);line-height:1.1;">WeatherTwin</div>
+            <div style="font-size:0.6rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;">AI Climate Intelligence</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1340,13 +1998,41 @@ with hdr_search:
     )
 with hdr_search_btn:
     search_clicked = st.button(":material/search:", use_container_width=True, key="search_btn")
+
 with hdr_user:
     st.markdown(f"""
-    <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end;padding:8px 0;">
+    <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end;padding:4px 0px;">
         <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#8b5cf6);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:0.7rem;flex-shrink:0;">{_user_initial}</div>
-        <span style="font-size:0.8rem;color:#94a3b8;font-weight:500;">{user_display}</span>
+        <span style="font-size:0.8rem;color:var(--text-secondary);font-weight:500;">{user_display}</span>
     </div>
     """, unsafe_allow_html=True)
+
+with hdr_temp:
+    temp_label = "°C" if st.session_state.temp_unit == "C" else "°F"
+    if st.button(temp_label, key="toggle_temp_btn", help="Toggle Temperature Unit"):
+        st.session_state.temp_unit = "F" if st.session_state.temp_unit == "C" else "C"
+        st.rerun()
+
+with hdr_theme:
+    theme_icon = ":material/dark_mode:" if st.session_state.theme == "dark" else ":material/light_mode:"
+    if st.button(theme_icon, key="toggle_theme_btn", help="Toggle Theme"):
+        new_theme = "light" if st.session_state.theme == "dark" else "dark"
+        st.session_state.theme = new_theme
+        # Write to config.toml so native Streamlit widgets respect the choice
+        import toml as _toml
+        os.makedirs(".streamlit", exist_ok=True)
+        cfg_path = ".streamlit/config.toml"
+        try:
+            with open(cfg_path, 'r') as f:
+                cfg = _toml.load(f)
+        except Exception:
+            cfg = {}
+        if "theme" not in cfg:
+            cfg["theme"] = {}
+        cfg["theme"]["base"] = new_theme
+        with open(cfg_path, 'w') as f:
+            _toml.dump(cfg, f)
+        st.rerun()
 with hdr_logout:
     if st.button(":material/logout:", key="logout_btn", help="Sign Out"):
         st.session_state.logged_in = False
@@ -1440,7 +2126,7 @@ with tab_dashboard:
             # Display highly visible alert banner in a single line
             alert_items = [f"<strong>{loc}</strong> <span style='color:{c};'>({lbl})</span>" for loc, lbl, c in all_alerts]
             alert_text = " · ".join(alert_items)
-            alert_html = f"<div style='background:rgba(244,63,94,0.15); border:1px solid #f43f5e; padding:8px 12px; border-radius:8px; margin-bottom:16px; font-size:0.95rem; color:#f8fafc;'><i class='fa fa-exclamation-triangle'></i> ⚠️ <strong>Severe Alerts:</strong> {alert_text}</div>"
+            alert_html = f"<div style='background:rgba(244,63,94,0.15); border:1px solid #f43f5e; padding:8px 12px; border-radius:8px; margin-bottom:16px; font-size:0.95rem; color:var(--text-primary);'><i class='fa fa-exclamation-triangle'></i> ⚠️ <strong>Severe Alerts:</strong> {alert_text}</div>"
             st.markdown(alert_html, unsafe_allow_html=True)
             
             # Throttle and send email
@@ -1473,8 +2159,10 @@ with tab_dashboard:
             # Location + favorite on same row
             loc_col, fav_col = st.columns([0.9, 0.1])
             with loc_col:
-                st.markdown(f'<div style="font-size:1.8rem; font-weight:700; color:#f8fafc; margin-bottom:2px;">{location_text}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="font-size:1.8rem; font-weight:700; color:var(--text-primary); margin-bottom:2px;">{location_text}</div>', unsafe_allow_html=True)
             with fav_col:
+                if is_fav:
+                    st.markdown('<div class="fav-heart-active"></div>', unsafe_allow_html=True)
                 if st.button(fav_icon, key="fav_inline_btn", help=fav_tip):
                     with st.spinner("Updating..."):
                         if is_fav:
@@ -1484,7 +2172,7 @@ with tab_dashboard:
                         st.session_state.user_favorites = []
                         st.rerun()
             if data.get("local_time"):
-                st.markdown(f'<div style="font-size:0.8rem; color:#94a3b8; font-weight:500; margin-top:2px;">Local Time: {data["local_time"]}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="font-size:0.8rem; color:var(--text-secondary); font-weight:500; margin-top:2px;">Local Time: {data["local_time"]}</div>', unsafe_allow_html=True)
 
         with col_actions:
             nav_col1, nav_col2 = st.columns([1, 1])
@@ -1536,44 +2224,44 @@ with tab_dashboard:
                 <div style="font-size:1.8rem;font-weight:800;
                      background:linear-gradient(135deg,#06b6d4,#3b82f6);
                      -webkit-background-clip:text;-webkit-text-fill-color:transparent;">
-                    {round(current['temperature'])}°
+                    {format_temp(current['temperature'], include_unit=False)}°
                 </div>
-                <div style="font-size:0.6rem;color:#64748b;margin-top:2px;">Feels {round(current['feels_like'])}°</div>
+                <div style="font-size:0.6rem;color:var(--text-secondary);margin-top:2px;">Feels {round(current['feels_like'])}°</div>
             </div>
             """, unsafe_allow_html=True)
         with fc2:
             st.markdown(f"""
             <div class="wt-card" style="text-align:center;padding:8px 4px;margin-bottom:16px;">
                 <div style="font-size:1.4rem;">{get_emoji(current['icon'], current.get('is_day', True))}</div>
-                <div style="font-size:0.8rem;font-weight:600;color:#f1f5f9;margin-top:2px;">{current['condition']}</div>
+                <div style="font-size:0.8rem;font-weight:600;color:var(--text-primary);margin-top:2px;">{current['condition']}</div>
             </div>
             """, unsafe_allow_html=True)
         with fc3:
             st.markdown(f"""
             <div class="wt-card" style="text-align:center;padding:8px 4px;margin-bottom:16px;">
                 <div style="font-size:1.2rem;">💧</div>
-                <div style="font-size:0.9rem;font-weight:700;color:#f1f5f9;margin-top:2px;">{current['humidity']}%</div>
+                <div style="font-size:0.9rem;font-weight:700;color:var(--text-primary);margin-top:2px;">{current['humidity']}%</div>
             </div>
             """, unsafe_allow_html=True)
         with fc4:
             st.markdown(f"""
             <div class="wt-card" style="text-align:center;padding:8px 4px;margin-bottom:16px;">
                 <div style="font-size:1.2rem;">💨</div>
-                <div style="font-size:0.9rem;font-weight:700;color:#f1f5f9;margin-top:2px;">{current['wind_speed']} <span style="font-size:0.6rem;color:#64748b;">km/h</span></div>
+                <div style="font-size:0.9rem;font-weight:700;color:var(--text-primary);margin-top:2px;">{current['wind_speed']} <span style="font-size:0.6rem;color:var(--text-secondary);">km/h</span></div>
             </div>
             """, unsafe_allow_html=True)
         with fc5:
             st.markdown(f"""
             <div class="wt-card" style="text-align:center;padding:8px 4px;margin-bottom:16px;">
                 <div style="font-size:1.2rem;">🌧️</div>
-                <div style="font-size:0.9rem;font-weight:700;color:#f1f5f9;margin-top:2px;">{current.get('precipitation', 0)} <span style="font-size:0.6rem;color:#64748b;">mm</span></div>
+                <div style="font-size:0.9rem;font-weight:700;color:var(--text-primary);margin-top:2px;">{current.get('precipitation', 0)} <span style="font-size:0.6rem;color:var(--text-secondary);">mm</span></div>
             </div>
             """, unsafe_allow_html=True)
 
         col_insight, col_dress, col_map = st.columns([1.2, 1, 1.8], gap="medium")
         
         with col_insight:
-            st.markdown("<div style='font-size:0.9rem; font-weight:600; color:#94a3b8; margin-bottom:8px;'>Daily Summary & Alerts</div>", unsafe_allow_html=True)
+            st.markdown("<div style='font-size:0.9rem; font-weight:600; color:var(--text-secondary); margin-bottom:8px;'>Daily Summary & Alerts</div>", unsafe_allow_html=True)
             if insight:
                 # Parse insight into structured bullet points for readability
                 import re as _re
@@ -1581,26 +2269,26 @@ with tab_dashboard:
                 _bullets_html = ""
                 for _s in _sentences:
                     # Color-code by category
-                    if any(w in _s.lower() for w in ['temperature', 'feels like', '°c', 'hot', 'cold', 'chilly', 'warm', 'pleasant', 'mild']):
+                    if any(w in _s.lower() for w in ['temperature', 'feels like', '°c', 'hot', 'cold', 'chilly', 'warm', 'pleasant', 'mild', 'heat', 'freeze', 'freezing']):
                         _chip = '<span style="display:inline-block;padding:1px 6px;border-radius:4px;font-size:0.65rem;font-weight:600;background:rgba(6,182,212,0.15);color:#06b6d4;margin-right:6px;">TEMP</span>'
-                    elif any(w in _s.lower() for w in ['umbrella', 'rain', 'coat', 'jacket', 'sweater', 'layers', 'sunscreen', 'clothing', 'wear', 'boots', 'windbreaker']):
+                    elif any(w in _s.lower() for w in ['umbrella', 'rain', 'coat', 'jacket', 'sweater', 'layers', 'sunscreen', 'clothing', 'wear', 'boots', 'windbreaker', 'hoodie', 'hat', 'glasses', 'uv', 'sun ', 'protection']):
                         _chip = '<span style="display:inline-block;padding:1px 6px;border-radius:4px;font-size:0.65rem;font-weight:600;background:rgba(139,92,246,0.15);color:#8b5cf6;margin-right:6px;">WEAR</span>'
-                    elif any(w in _s.lower() for w in ['walk', 'jog', 'picnic', 'outdoor', 'indoor', 'museum', 'stroll', 'activity', 'stargazing', 'movie', 'café']):
+                    elif any(w in _s.lower() for w in ['walk', 'jog', 'picnic', 'outdoor', 'indoor', 'museum', 'stroll', 'activity', 'stargazing', 'movie', 'café', 'plan ', 'visit', 'explore']):
                         _chip = '<span style="display:inline-block;padding:1px 6px;border-radius:4px;font-size:0.65rem;font-weight:600;background:rgba(16,185,129,0.15);color:#10b981;margin-right:6px;">DO</span>'
-                    elif any(w in _s.lower() for w in ['wind', 'fog', 'visibility', 'drive', 'cycling', 'secure']):
+                    elif any(w in _s.lower() for w in ['wind', 'fog', 'visibility', 'drive', 'cycling', 'secure', 'health', 'asthma', 'allergy', 'allergies', 'pollen', 'pollution', 'caution', 'warning', 'risk', 'safe']):
                         _chip = '<span style="display:inline-block;padding:1px 6px;border-radius:4px;font-size:0.65rem;font-weight:600;background:rgba(245,158,11,0.15);color:#f59e0b;margin-right:6px;">ALERT</span>'
                     else:
                         _chip = ''
-                    _bullets_html += f'<li style="margin-bottom:6px;font-size:0.82rem;color:#cbd5e1;line-height:1.45;">{_chip}{_s}</li>'
+                    _bullets_html += f'<li style="margin-bottom:6px;font-size:0.82rem;color:var(--text-primary);line-height:1.45;">{_chip}{_s}</li>'
                 st.markdown(f"""
                 <div class="wt-insight" style="height:250px; overflow-y:auto;">
                     <div style="font-size:0.75rem;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">{city['name']} — Today</div>
-                    <ul style="margin:0;padding-left:16px;list-style:none;">{_bullets_html}</ul>
+                    <ul style="margin:0;padding-left:0px;list-style:none;">{_bullets_html}</ul>
                 </div>
                 """, unsafe_allow_html=True)
 
         with col_dress:
-            st.markdown("<div style='font-size:0.9rem; font-weight:600; color:#94a3b8; margin-bottom:8px;'>👔 OOTD</div>", unsafe_allow_html=True)
+            st.markdown("<div style='font-size:0.9rem; font-weight:600; color:var(--text-secondary); margin-bottom:8px;'>👔 OOTD</div>", unsafe_allow_html=True)
             
             temp = round(current.get('temperature', 20))
             cond = current.get('condition', '').lower()
@@ -1627,10 +2315,10 @@ with tab_dashboard:
                 img_html = f'<div style="border-radius:12px; overflow:hidden; border: 1px solid rgba(255,255,255,0.1); height:250px; display:flex; justify-content:center; align-items:center; background:#1e293b;"><img src="data:image/png;base64,{data_b64}" style="height:100%; width:100%; object-fit:cover;"></div>'
                 st.markdown(img_html, unsafe_allow_html=True)
             else:
-                st.markdown(f'<div style="border-radius:12px; height:250px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.05); color:#64748b; font-size:0.8rem;">Image {outfit_img} not found</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="border-radius:12px; height:250px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.05); color:var(--text-secondary); font-size:0.8rem;">Image {outfit_img} not found</div>', unsafe_allow_html=True)
 
         with col_map:
-            st.markdown("<div style='font-size:0.9rem; font-weight:600; color:#94a3b8; margin-bottom:8px;'>🗺️ Interactive Radar (Click anywhere to change location)</div>", unsafe_allow_html=True)
+            st.markdown("<div style='font-size:0.9rem; font-weight:600; color:var(--text-secondary); margin-bottom:8px;'>🗺️ Interactive Radar (Click anywhere to change location)</div>", unsafe_allow_html=True)
             m_center = [city["latitude"], city["longitude"]]
             r_map = folium.Map(location=m_center, zoom_start=6, tiles="OpenStreetMap", max_zoom=20)
             try:
@@ -1660,8 +2348,8 @@ with tab_dashboard:
 
     else:
         st.markdown("---")
-        st.markdown("<h2 style='text-align:center;color:#f1f5f9;'>Welcome to WeatherTwin</h2>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center;color:#94a3b8;max-width:500px;margin:0 auto 20px;'>Search for a city above or click <b>🗺️ Map</b> to pick a location on the map.</p>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align:center;color:var(--text-primary);'>Welcome to WeatherTwin</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center;color:var(--text-secondary);max-width:500px;margin:0 auto 20px;'>Search for a city above or click <b>🗺️ Map</b> to pick a location on the map.</p>", unsafe_allow_html=True)
 
     # ─── Weather Details (only if data exists) ────
     if data:
@@ -1708,7 +2396,7 @@ with tab_dashboard:
                 <div class="hr-card">
                     <div class="hr-time">{t_str}</div>
                     <div class="hr-icon">{emoji}</div>
-                    <div class="hr-temp">{round(h['temperature'])}°</div>
+                    <div class="hr-temp">{format_temp(h['temperature'], include_unit=False)}°</div>
                     <div class="hr-precip">💧{h.get('precipitation', 0)}mm</div>
                 </div>
                 """
@@ -1723,13 +2411,13 @@ with tab_dashboard:
                 .hr-scroll::-webkit-scrollbar-thumb {{ background: rgba(148,163,184,0.3); border-radius: 4px; }}
                 .hr-card {{
                     min-width: 80px; flex: 0 0 auto;
-                    background: rgba(17,24,39,0.7); border: 1px solid rgba(148,163,184,0.1);
+                    border: 1px solid rgba(148,163,184,0.1);
                     border-radius: 12px; padding: 12px 8px; text-align: center;
                 }}
                 .hr-card:hover {{ border-color: rgba(59,130,246,0.3); }}
                 .hr-time {{ font-size: 0.72rem; font-weight: 600; color: #64748b; text-transform: uppercase; }}
                 .hr-icon {{ font-size: 1.4rem; margin: 6px 0; }}
-                .hr-temp {{ font-size: 1rem; font-weight: 700; color: #f1f5f9; }}
+                .hr-temp {{ font-size: 1rem; font-weight: 700; color: #64748b; }}
                 .hr-precip {{ font-size: 0.68rem; color: #06b6d4; margin-top: 3px; }}
             </style>
             <div class="hr-scroll">{cards_html}</div>
@@ -1835,13 +2523,13 @@ with tab_dashboard:
 #  COMPARE TAB
 # ═══════════════════════════════════════════════════
 with tab_compare:
-    st.markdown("<h2 style='color:#f1f5f9;'>Compare Two Cities</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:var(--text-primary);'>Compare Two Cities</h2>", unsafe_allow_html=True)
 
     comp_col1, comp_col2, comp_col3 = st.columns([3, 1, 3])
     with comp_col1:
         compare_city1 = st.text_input("City 1", placeholder="e.g. New York", label_visibility="collapsed", key="comp1")
     with comp_col2:
-        st.markdown("<div style='text-align:center;font-weight:700;color:#64748b;padding-top:8px;'>VS</div>", unsafe_allow_html=True)
+        st.markdown("<div style='text-align:center;font-weight:700;color:var(--text-secondary);padding-top:8px;'>VS</div>", unsafe_allow_html=True)
     with comp_col3:
         compare_city2 = st.text_input("City 2", placeholder="e.g. London", label_visibility="collapsed", key="comp2")
 
@@ -1895,8 +2583,8 @@ with tab_compare:
                     st.markdown(f"""
                     <div style="background:rgba(148,163,184,0.05); border-left:3px solid #3b82f6; 
                                 padding:10px 14px; border-radius:4px; margin-bottom:12px;">
-                        <div style="font-size:0.65rem; color:#64748b; font-weight:700; text-transform:uppercase; margin-bottom:4px;">💡 AI Insight</div>
-                        <div style="font-size:0.85rem; color:#94a3b8; line-height:1.4;">{insight}</div>
+                        <div style="font-size:0.65rem; color:var(--text-secondary); font-weight:700; text-transform:uppercase; margin-bottom:4px;">💡 AI Insight</div>
+                        <div style="font-size:0.85rem; color:var(--text-secondary); line-height:1.4;">{insight}</div>
                     </div>
                     """, unsafe_allow_html=True)
 
@@ -1910,10 +2598,10 @@ with tab_compare:
                     <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
                         <div style="font-size:2.5rem;">{emoji}</div>
                         <div>
-                            <div style="font-size:1.1rem;font-weight:700;color:#f1f5f9;">
+                            <div style="font-size:1.1rem;font-weight:700;color:var(--text-primary);">
                                 {geo['name']}, {geo.get('country', '')}
                             </div>
-                            <div style="font-size:0.75rem;color:#64748b;">
+                            <div style="font-size:0.75rem;color:var(--text-secondary);">
                                 {cur['condition']} · {'Day' if is_day_flag else 'Night'}
                             </div>
                         </div>
@@ -1921,9 +2609,9 @@ with tab_compare:
                             <div style="font-size:2.2rem;font-weight:800;
                                  background:linear-gradient(135deg,#06b6d4,#3b82f6);
                                  -webkit-background-clip:text;-webkit-text-fill-color:transparent;">
-                                {round(cur['temperature'])}°C
+                                {format_temp(cur['temperature'], include_unit=False)}°C
                             </div>
-                            <div style="font-size:0.72rem;color:#64748b;">Feels {round(cur['feels_like'])}°</div>
+                            <div style="font-size:0.72rem;color:var(--text-secondary);">Feels {round(cur['feels_like'])}°</div>
                         </div>
                     </div>
                     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
@@ -1992,14 +2680,14 @@ with tab_compare:
             alert_label = f" ⚠️ {item_alerts[0][0]}" if item_alerts else ""
             popup_html = (
                 f"<b>{geo_item['name']}</b><br>"
-                f"{round(cur_item['temperature'])}°C · {cur_item['condition']}{alert_label}<br>"
+                f"{format_temp(cur_item['temperature'], include_unit=False)}°C · {cur_item['condition']}{alert_label}<br>"
                 f"Wind: {cur_item['wind_speed']} km/h · Humidity: {cur_item['humidity']}%"
             )
             if item_alerts:
                 popup_html += "<br><b style='color:#f43f5e;'>" + " · ".join(a[0] for a in item_alerts) + "</b>"
             folium.Marker(
                 [geo_item["latitude"], geo_item["longitude"]],
-                tooltip=f"{geo_item['name']}: {round(cur_item['temperature'])}°C",
+                tooltip=f"{geo_item['name']}: {format_temp(cur_item['temperature'], include_unit=False)}°C",
                 popup=folium.Popup(popup_html, max_width=250),
                 icon=folium.Icon(color=color, icon="cloud", prefix="fa"),
             ).add_to(comp_map)
@@ -2011,7 +2699,7 @@ with tab_compare:
 
         folium.LayerControl().add_to(comp_map)
         st_folium(comp_map, height=350, width=None, key="compare_map", returned_objects=[])
-        st.markdown('<div style="font-size:0.75rem; color:#94a3b8; text-align:center; margin-top:-10px;">🔵 Light · 🟢 Moderate · 🟡 Heavy · 🔴 Storm · 💗 Hail/Ice · ⚪ Snow</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-size:0.75rem; color:var(--text-secondary); text-align:center; margin-top:-10px;">🔵 Light · 🟢 Moderate · 🟡 Heavy · 🔴 Storm · 💗 Hail/Ice · ⚪ Snow</div>', unsafe_allow_html=True)
 
 
 
@@ -2118,6 +2806,33 @@ st.markdown(
         height: 500px !important;
         max-height: 80vh !important;
         padding: 1rem;
+    }
+
+    /* Reset any inherited floating chat popover styles inside the header columns */
+    [data-testid="stColumn"] [data-testid="stPopover"] {
+        position: relative !important;
+        bottom: auto !important;
+        left: auto !important;
+        right: auto !important;
+        width: auto !important;
+        height: auto !important;
+        z-index: 1 !important;
+    }
+    [data-testid="stColumn"] [data-testid="stPopover"] > div:first-child > button {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        width: auto !important;
+        height: auto !important;
+        padding: 4px !important;
+        border-radius: 0.5rem !important;
+    }
+    [data-testid="stColumn"] [data-testid="stPopover"] > div:first-child > button p {
+        display: block !important;
+    }
+    [data-testid="stColumn"] [data-testid="stPopover"] > div:first-child > button:hover {
+        transform: none !important;
+        box-shadow: none !important;
     }
     </style>
     """,

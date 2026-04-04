@@ -66,7 +66,12 @@ def compute_health_indices(weather_data: dict) -> HealthIndices:
     )
 
 
-def get_health_recommendation(city: str, indices: HealthIndices, condition: str = "") -> str:
+async def get_health_recommendation(
+    city: str, 
+    indices: HealthIndices, 
+    condition: str = "",
+    unit_pref: str = "Celsius"
+) -> str:
     """Use LLM to generate personalized health recommendation."""
     try:
         idx_summary = (
@@ -77,24 +82,30 @@ def get_health_recommendation(city: str, indices: HealthIndices, condition: str 
         )
         health_context = f"Health condition: {condition}" if condition else "General wellness"
 
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model=MODEL,
             messages=[
-                {"role": "system", "content": "You are a health-weather advisor. Give brief, actionable health recommendations (max 300 chars) based on weather-health indices."},
+                {"role": "system", "content": f"You are a health-weather advisor. The user prefers {unit_pref}. Provide brief, actionable health recommendations (max 300 chars) based on weather-health indices using {unit_pref} logic and symbols."},
                 {"role": "user", "content": f"City: {city}. Indices: {idx_summary}. {health_context}. What should this person be aware of today?"},
             ],
             temperature=0.6,
             max_tokens=150,
         )
         return response.choices[0].message.content.strip()
-    except Exception:
+    except Exception as e:
+        print(f"Error in health recommendation: {e}")
         return "Health recommendation unavailable."
 
 
-def get_health_report(city: str, weather_data: dict, condition: str = "") -> HealthReport:
+async def get_health_report(
+    city: str, 
+    weather_data: dict, 
+    condition: str = "",
+    unit_pref: str = "Celsius"
+) -> HealthReport:
     """Full health-weather report for a city."""
     indices = compute_health_indices(weather_data)
-    recommendation = get_health_recommendation(city, indices, condition)
+    recommendation = await get_health_recommendation(city, indices, condition, unit_pref)
     return HealthReport(city=city, indices=indices, recommendation=recommendation)
 
 

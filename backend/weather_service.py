@@ -591,3 +591,5 @@ def generate_local_insight(current: dict, forecast: dict) -> str:
     
     return " ".join(parts)
 
+def get_unit_label_local(pref):
+    return "°F" if pref == "Fahrenheit" else "°C"

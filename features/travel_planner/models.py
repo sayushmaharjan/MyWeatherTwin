@@ -1,6 +1,6 @@
 """
 Pydantic models for travel weather planning.
-Includes: Travel Reports, Road Conditions, Travel Windows, Flight Delay Risk.
+Includes: Travel Reports, Road Conditions, Flight Delay Risk.
 """
 
 from pydantic import BaseModel, Field
@@ -23,9 +23,11 @@ class TravelReport(BaseModel):
     flight_risk: str = Field(default="Low", description="Travel risk assessment")
     itinerary: str = Field(default="", description="Day-by-day itinerary")
     weather_diff: str = Field(default="", description="Home vs destination weather comparison")
+
     route_coords: list = Field(default_factory=list, description="Driving route polyline coords")
     home_coords: Optional[Tuple[float, float]] = Field(default=None, description="Home lat/lon")
     dest_coords: Optional[Tuple[float, float]] = Field(default=None, description="Destination lat/lon")
+    is_cached: bool = Field(default=False, description="Whether the report was loaded from cache")
 
 
 # ── Road Condition Models ─────────────────────────
@@ -50,14 +52,39 @@ class FogRisk(BaseModel):
     dew_spread: float = 10.0
 
 
+class WindRisk(BaseModel):
+    """Wind hazard assessment for a single hour."""
+    speed_kmh: float = 0
+    gust_kmh: float = 0
+    level: str = "CALM"
+    icon: str = "🟢"
+    risk_score: int = 0
+
+
+class RainRisk(BaseModel):
+    """Rain/hydroplaning assessment for a single hour."""
+    precip_mm: float = 0
+    rain_mm: float = 0
+    snowfall_cm: float = 0
+    snow_depth_cm: float = 0
+    level: str = "DRY"
+    icon: str = "🟢"
+    risk_score: int = 0
+
+
 class RoadConditionHour(BaseModel):
     """Combined road condition for one hour."""
     hour: int
     time_label: str
     ice: BlackIceRisk
     fog: FogRisk
+    wind: WindRisk = WindRisk()
+    rain: RainRisk = RainRisk()
+    temp_c: float = 15.0
     combined_danger: int = 0
     safe_to_drive: bool = True
+    overall_label: str = "NORMAL"
+    overall_icon: str = "🟢"
 
 
 class RoadConditions(BaseModel):
@@ -68,27 +95,10 @@ class RoadConditions(BaseModel):
     current: Optional[RoadConditionHour] = None
     peak_danger_time: str = ""
     peak_danger_score: int = 0
+    overall_advisory: str = ""
 
 
-# ── Travel Window Models ──────────────────────────
 
-class TravelWindowDay(BaseModel):
-    """Single day in a travel corridor scoring."""
-    day: str
-    date: str
-    corridor_score: int = 100
-    worst_point: str = "origin"
-    grade: str = "🟢 Excellent"
-    origin_precip: float = 0
-    dest_precip: float = 0
-    origin_snow: float = 0
-
-
-class TravelWindowResult(BaseModel):
-    """Full 7-day travel window analysis."""
-    daily_scores: List[TravelWindowDay] = Field(default_factory=list)
-    best_travel_day: Optional[TravelWindowDay] = None
-    trip_hours: float = 4.0
 
 
 # ── Flight Delay Models ──────────────────────────

@@ -2,20 +2,45 @@
 Travel Planner — core business logic.
 Destination profiles, health-aware packing, mode-aware itinerary,
 weather comparison, driving route, and risk assessment via LLM.
-Also includes: Road Condition Predictor, Best Travel Window, Flight Delay Risk.
+Also includes: Road Condition Predictor and Flight Delay Risk.
 """
 
 import asyncio
+import json
 import time
+import os
 import requests as sync_requests
 import httpx
 from datetime import datetime, timedelta
-from config import client, MODEL
+from config import client, MODEL, MODEL_SMALL
 from .models import (
-    TravelReport, BlackIceRisk, FogRisk, RoadConditionHour,
-    RoadConditions, TravelWindowDay, TravelWindowResult,
+    TravelReport, BlackIceRisk, FogRisk, WindRisk, RainRisk,
+    RoadConditionHour, RoadConditions,
     FlightDelayRisk, FlightDelayResult,
 )
+
+CACHE_FILE = os.path.join(os.path.dirname(__file__), "travel_cache.json")
+
+def _load_cache():
+    if not os.path.exists(CACHE_FILE):
+        return {}
+    try:
+        with open(CACHE_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {}
+
+def _save_cache(cache_data):
+    try:
+        # Keep only last 100 entries to prevent file bloat
+        if len(cache_data) > 100:
+            keys = list(cache_data.keys())
+            for k in keys[:20]:
+                del cache_data[k]
+        with open(CACHE_FILE, "w") as f:
+            json.dump(cache_data, f, indent=2)
+    except:
+        pass
 
 
 def _run_async(coro):
@@ -25,12 +50,14 @@ def _run_async(coro):
     return loop.run_until_complete(coro)
 
 
-async def _llm_call(system_prompt: str, user_prompt: str, temperature: float = 0.6, max_tokens: int = 300, retries: int = 3) -> str:
-    """Async LLM call with retry logic for connection errors."""
+async def _llm_call(system_prompt: str, user_prompt: str, temperature: float = 0.6, max_tokens: int = 300, retries: int = 3, force_model: str = None) -> str:
+    """Async LLM call with retry logic and model fallback (429 handling)."""
+    current_model = force_model or MODEL
+    
     for attempt in range(retries):
         try:
             response = await client.chat.completions.create(
-                model=MODEL,
+                model=current_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
@@ -40,10 +67,70 @@ async def _llm_call(system_prompt: str, user_prompt: str, temperature: float = 0
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
+            err_msg = str(e).lower()
+            # If 429 (rate limit) or 503/504 (overloaded), try fallback to 8B model
+            if "429" in err_msg or "rate limit" in err_msg:
+                if current_model == MODEL:
+                    current_model = MODEL_SMALL
+                    # Wait briefly before switching
+                    await asyncio.sleep(1)
+                    continue
+            
             if attempt < retries - 1:
-                time.sleep(1.5 * (attempt + 1))  # Back-off: 1.5s, 3s
+                # Use non-blocking sleep in async context
+                await asyncio.sleep(2 * (attempt + 1))
                 continue
             raise e
+
+
+async def _get_consolidated_travel_data(destination: str, date_info: str, num_days: int, travel_mode: str, home_city: str, health_issues: str) -> dict:
+    """Fetch all AI components in a single consolidated JSON request to save tokens and avoid rate limits."""
+    health_ctx = f"Traveler health conditions: {health_issues}." if health_issues else ""
+    mode_ctx = "Traveling by car (road trip)." if travel_mode == "Car" else "Traveling by flight."
+    comparison_ctx = f"Compare with home city: {home_city}." if home_city else ""
+    
+    prompt = (
+        f"Generate a comprehensive travel weather report for **{destination}** during the period: **{date_info}**. "
+        f"{mode_ctx} {health_ctx} {comparison_ctx}\n\n"
+        "Return the response in EXACT JSON format with these keys. IMPORTANT: All values MUST be plain strings (use markdown for formatting), NOT nested objects or lists:\n"
+        "- 'profile': Brief weather profile (highs/lows, rain days, humidity, tip). Use bullet points. Value must be a string.\n"
+        "- 'packing': Category-based list with emojis. Include health/mode needs. Bullet points. Value must be a string.\n"
+        "- 'itinerary': Day-by-day plan for {num_days} days. Use 'Day X' format with emojis. Concise. Value must be a string.\n"
+        "- 'weather_diff': Comparison summary between home and destination. Value must be a string.\n"
+        "- 'risk': Risk assessment (Low/Moderate/High) with a brief reason. Value must be a string.\n\n"
+        "Double check that every value in the JSON is a string."
+    )
+    
+    try:
+        raw_json = await _llm_call(
+            "You are a helpful travel weather AI. You response ONLY in structured JSON.",
+            prompt,
+            temperature=0.6,
+            max_tokens=2000 # Increased to handle full report
+        )
+        # Clean up in case there's markdown around it
+        clean_json = raw_json.strip()
+        if clean_json.startswith("```json"):
+            clean_json = clean_json[7:]
+        if clean_json.endswith("```"):
+            clean_json = clean_json[:-3]
+        
+        result = json.loads(clean_json.strip())
+        # Safety: Flatten any nested structures into strings to prevent Pydantic validation errors
+        return {k: _flatten_to_string(v) for k, v in result.items()}
+    except Exception as e:
+        print(f"Consolidated AI call failed: {e}")
+        return {}
+
+def _flatten_to_string(val) -> str:
+    """Helper to convert nested dicts/lists from AI into a flat readable string."""
+    if isinstance(val, str):
+        return val
+    if isinstance(val, dict):
+        return "\n".join([f"- **{k.title()}**: {v}" if not isinstance(v, (dict, list)) else f"- **{k.title()}**:\n{_flatten_to_string(v)}" for k, v in val.items()])
+    if isinstance(val, list):
+        return "\n".join([f"- {v}" if not isinstance(v, (dict, list)) else _flatten_to_string(v) for v in val])
+    return str(val)
 
 
 def get_travel_report(
@@ -56,16 +143,64 @@ def get_travel_report(
     health_issues: str = "",
     travel_mode: str = "Flight",
 ) -> TravelReport:
-    """Generate a comprehensive travel weather report."""
+    """Generate a comprehensive travel weather report with caching and fallback."""
     date_info = f"from {start_date} to {end_date} ({num_days} days)" if start_date else (f" in {month}" if month else "")
+    
+    # ── Caching Logic ──
+    cache = _load_cache()
+    cache_key = f"{destination}_{month}_{start_date}_{end_date}_{travel_mode}_{home_city}_{health_issues}".lower().replace(" ", "_")
+    
+    if cache_key in cache:
+        cached_data = cache[cache_key]
+        # Check if cache is reasonably fresh (e.g., within 24 hours) - simplified for now
+        return TravelReport(
+            destination=destination,
+            month=month,
+            start_date=start_date,
+            end_date=end_date,
+            num_days=num_days,
+            home_city=home_city,
+            health_issues=health_issues,
+            travel_mode=travel_mode,
+            profile=cached_data.get("profile", "Profile unavailable"),
+            packing_list=cached_data.get("packing", "Packing list unavailable"),
+            weather_twin="",
+            flight_risk=cached_data.get("risk", "Risk assessment unavailable"),
+            itinerary=cached_data.get("itinerary", "Itinerary unavailable"),
+            weather_diff=cached_data.get("weather_diff", "Comparison unavailable"),
+            route_coords=[], # Real-time route is calculated below
+            home_coords=None,
+            dest_coords=None,
+            is_cached=True # Meta field for UI
+        )
 
-    profile = _get_destination_profile(destination, date_info)
-    packing = _get_packing_list(destination, date_info, health_issues, travel_mode)
-    itinerary = _generate_itinerary(destination, date_info, num_days, travel_mode)
-    weather_diff = _compare_weather(destination, home_city, date_info) if home_city else "Set your home address in the sidebar to see weather comparison."
-    risk = _assess_risk(destination, date_info, travel_mode)
+    # ── Fetch Consolidated Data ──
+    try:
+        ai_data = _run_async(_get_consolidated_travel_data(destination, date_info, num_days, travel_mode, home_city, health_issues))
+    except:
+        ai_data = {}
 
-    # Route for car mode
+    # ── Fallback to individual calls if consolidated failed or returned empty ──
+    if not ai_data:
+        profile = _get_destination_profile(destination, date_info)
+        packing = _get_packing_list(destination, date_info, health_issues, travel_mode)
+        itinerary = _generate_itinerary(destination, date_info, num_days, travel_mode)
+        weather_diff = _compare_weather(destination, home_city, date_info) if home_city else "Set your home address in the sidebar to see weather comparison."
+        risk = _assess_risk(home_city, destination, date_info, travel_mode)
+        
+        ai_data = {
+            "profile": profile,
+            "packing": packing,
+            "itinerary": itinerary,
+            "weather_diff": weather_diff,
+            "risk": risk
+        }
+
+    # Save to Cache
+    cache[cache_key] = ai_data
+    _save_cache(cache)
+
+    # ── Real-time routing (non-AI) ──
     route_coords = []
     home_coords = None
     dest_coords = None
@@ -81,15 +216,16 @@ def get_travel_report(
         home_city=home_city,
         health_issues=health_issues,
         travel_mode=travel_mode,
-        profile=profile,
-        packing_list=packing,
+        profile=ai_data.get("profile", ""),
+        packing_list=ai_data.get("packing", ""),
         weather_twin="",
-        flight_risk=risk,
-        itinerary=itinerary,
-        weather_diff=weather_diff,
+        flight_risk=ai_data.get("risk", ""),
+        itinerary=ai_data.get("itinerary", ""),
+        weather_diff=ai_data.get("weather_diff", ""),
         route_coords=route_coords,
         home_coords=home_coords,
         dest_coords=dest_coords,
+        is_cached=False
     )
 
 
@@ -144,17 +280,20 @@ def _compare_weather(destination: str, home_city: str, date_info: str) -> str:
         return f"Comparison unavailable: {e}"
 
 
-def _assess_risk(destination: str, date_info: str, travel_mode: str) -> str:
+def _assess_risk(home_city: str, destination: str, date_info: str, travel_mode: str) -> str:
+    dep = home_city or "Departure"
     if travel_mode == "Car":
         sys_p = "You are a road travel weather expert. Rate driving weather risk as Low, Moderate, or High. Mention hazards. Max 150 chars."
-        usr_p = f"Driving weather risk for road trip to {destination} {date_info}?"
+        usr_p = f"Driving weather risk for road trip from {dep} to {destination} {date_info}?"
     else:
-        sys_p = "You are an aviation weather expert. Rate flight disruption risk as Low, Moderate, or High with reason. Max 150 chars."
-        usr_p = f"Flight disruption risk for travel to {destination} {date_info}?"
+        sys_p = "You are an aviation weather expert. Rate flight disruption risk as Low, Moderate, or High with reason. Max 200 chars. Mention both locations."
+        usr_p = f"Flight disruption risk for flights between {dep} and {destination} {date_info}?"
     try:
-        return _run_async(_llm_call(sys_p, usr_p, temperature=0.3, max_tokens=80))
+        return _run_async(_llm_call(sys_p, usr_p, temperature=0.3, max_tokens=100))
     except Exception:
         return "Low"
+
+
 
 
 async def _geocode_city(name: str):
@@ -196,8 +335,8 @@ def _get_driving_route(home_city: str, destination: str):
 OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast"
 
 
-def fetch_road_weather(lat: float, lon: float) -> dict:
-    """Fetch road-specific weather variables from Open-Meteo."""
+def fetch_road_weather(lat: float, lon: float, start_date: str = None, end_date: str = None) -> dict:
+    """Fetch road-specific weather variables from Open-Meteo for the trip duration."""
     params = {
         "latitude": lat,
         "longitude": lon,
@@ -211,15 +350,34 @@ def fetch_road_weather(lat: float, lon: float) -> dict:
             "visibility",
             "wind_speed_10m",
         ],
-        "daily": [
-            "temperature_2m_min",
-            "temperature_2m_max",
-            "precipitation_sum",
-            "snowfall_sum",
-        ],
-        "forecast_days": 7,
         "timezone": "auto",
     }
+    
+    if start_date and end_date:
+        # Open-Meteo supports up to 16 days in the future.
+        # Ensure we don't request dates beyond that limit.
+        today = datetime.now().date()
+        max_date = today + timedelta(days=15)
+        
+        try:
+            s_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date()
+            e_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
+            
+            if s_date_obj > max_date:
+                s_date_obj = max_date
+            if e_date_obj > max_date:
+                e_date_obj = max_date
+            
+            if s_date_obj <= e_date_obj:
+                params["start_date"] = s_date_obj.strftime("%Y-%m-%d")
+                params["end_date"] = e_date_obj.strftime("%Y-%m-%d")
+            else:
+                params["forecast_days"] = 7
+        except:
+            params["forecast_days"] = 7
+    else:
+        params["forecast_days"] = 7
+        
     try:
         resp = sync_requests.get(OPENMETEO_URL, params=params, timeout=15)
         resp.raise_for_status()
@@ -371,6 +529,76 @@ def compute_fog_risk(hourly: dict, hour_index: int) -> FogRisk:
         dew_spread=round(dew_spread, 1),
     )
 
+def compute_wind_risk(hourly: dict, hour_index: int) -> WindRisk:
+    """Assess wind hazard for driving — crosswinds, gusts, vehicle stability."""
+    wind_list = hourly.get("wind_speed_10m", [])
+    speed = wind_list[hour_index] if hour_index < len(wind_list) and wind_list[hour_index] is not None else 0
+
+    # Open-Meteo wind_speed_10m is in km/h
+    risk_score = 0
+    if speed >= 90:
+        level, icon = "EXTREME", "🔴"
+        risk_score = 90
+    elif speed >= 60:
+        level, icon = "DANGEROUS", "🔴"
+        risk_score = 70
+    elif speed >= 40:
+        level, icon = "STRONG", "🟠"
+        risk_score = 40
+    elif speed >= 25:
+        level, icon = "MODERATE", "🟡"
+        risk_score = 20
+    else:
+        level, icon = "CALM", "🟢"
+        risk_score = 0
+
+    return WindRisk(speed_kmh=round(speed, 1), gust_kmh=0, level=level, icon=icon, risk_score=risk_score)
+
+
+def compute_rain_risk(hourly: dict, hour_index: int) -> RainRisk:
+    """Assess precipitation hazard — hydroplaning, snow accumulation."""
+    precip_list = hourly.get("precipitation", [])
+    rain_list = hourly.get("rain", [])
+    snow_list = hourly.get("snowfall", [])
+    depth_list = hourly.get("snow_depth", [])
+
+    precip = precip_list[hour_index] if hour_index < len(precip_list) and precip_list[hour_index] is not None else 0
+    rain = rain_list[hour_index] if hour_index < len(rain_list) and rain_list[hour_index] is not None else 0
+    snow = snow_list[hour_index] if hour_index < len(snow_list) and snow_list[hour_index] is not None else 0
+    depth = depth_list[hour_index] if hour_index < len(depth_list) and depth_list[hour_index] is not None else 0
+
+    risk_score = 0
+    if rain >= 10:
+        level, icon = "HEAVY RAIN", "🔴"
+        risk_score = 70
+    elif rain >= 4:
+        level, icon = "MODERATE RAIN", "🟠"
+        risk_score = 40
+    elif rain >= 1:
+        level, icon = "LIGHT RAIN", "🟡"
+        risk_score = 20
+    elif snow >= 2:
+        level, icon = "HEAVY SNOW", "🔴"
+        risk_score = 80
+    elif snow >= 0.5:
+        level, icon = "MODERATE SNOW", "🟠"
+        risk_score = 50
+    elif snow > 0:
+        level, icon = "LIGHT SNOW", "🟡"
+        risk_score = 25
+    elif precip > 0:
+        level, icon = "DRIZZLE", "🟡"
+        risk_score = 10
+    else:
+        level, icon = "DRY", "🟢"
+        risk_score = 0
+
+    return RainRisk(
+        precip_mm=round(precip, 1), rain_mm=round(rain, 1),
+        snowfall_cm=round(snow, 1), snow_depth_cm=round(depth, 1),
+        level=level, icon=icon, risk_score=risk_score,
+    )
+
 
 def compute_road_conditions(road_data: dict) -> RoadConditions:
     """Master road condition analyzer — next 24 hours."""
@@ -379,26 +607,51 @@ def compute_road_conditions(road_data: dict) -> RoadConditions:
 
     hourly = road_data.get("hourly", {})
     times = hourly.get("time", [])
+    temps = hourly.get("temperature_2m", [])
     results = []
 
-    for i in range(min(24, len(times))):
+    for i in range(len(times)):
         ice = compute_black_ice_probability(hourly, i)
         fog = compute_fog_risk(hourly, i)
+        wind = compute_wind_risk(hourly, i)
+        rain = compute_rain_risk(hourly, i)
+        temp = temps[i] if i < len(temps) and temps[i] is not None else 15.0
 
-        # Combined danger score
+        # Combined danger score from all factors
         fog_score = (100 if fog.visibility_m < 200 else
                      60 if fog.visibility_m < 500 else
                      30 if fog.visibility_m < 1000 else 0)
-        combined_score = max(ice.risk_score, fog_score)
+        combined_score = max(ice.risk_score, fog_score, wind.risk_score, rain.risk_score)
 
-        time_label = times[i][11:16] if len(times[i]) > 11 else times[i]
+        # Overall label
+        if combined_score >= 70:
+            overall_label, overall_icon = "DANGEROUS", "🔴"
+        elif combined_score >= 40:
+            overall_label, overall_icon = "CAUTION", "🟠"
+        elif combined_score >= 20:
+            overall_label, overall_icon = "FAIR", "🟡"
+        else:
+            overall_label, overall_icon = "GOOD", "🟢"
+
+        if len(times[i]) > 11:
+            date_part = times[i][5:10].replace("-", "/") # 04/03
+            time_part = times[i][11:16]
+            time_label = f"{date_part} {time_part}"
+        else:
+            time_label = times[i]
+
         results.append(RoadConditionHour(
             hour=i,
             time_label=time_label,
             ice=ice,
             fog=fog,
+            wind=wind,
+            rain=rain,
+            temp_c=round(temp, 1),
             combined_danger=combined_score,
             safe_to_drive=combined_score < 30,
+            overall_label=overall_label,
+            overall_icon=overall_icon,
         ))
 
     if not results:
@@ -407,6 +660,18 @@ def compute_road_conditions(road_data: dict) -> RoadConditions:
     worst = max(results, key=lambda x: x.combined_danger)
     safe_windows = [r for r in results if r.safe_to_drive]
 
+    # Build advisory
+    advisories = []
+    if any(r.ice.risk_score >= 40 for r in results):
+        advisories.append("🧊 Black ice risk detected in the next 24h")
+    if any(r.fog.visibility_m < 1000 for r in results):
+        advisories.append("🌫️ Fog expected — reduced visibility periods")
+    if any(r.wind.risk_score >= 40 for r in results):
+        advisories.append("💨 Strong winds — caution for high-profile vehicles")
+    if any(r.rain.risk_score >= 40 for r in results):
+        advisories.append("🌧️ Heavy precipitation — hydroplaning risk")
+    advisory = " · ".join(advisories) if advisories else "✅ No significant road hazards in the next 24h"
+
     return RoadConditions(
         hourly=results,
         worst_hour=worst,
@@ -414,123 +679,10 @@ def compute_road_conditions(road_data: dict) -> RoadConditions:
         current=results[0],
         peak_danger_time=worst.time_label,
         peak_danger_score=worst.combined_danger,
+        overall_advisory=advisory,
     )
 
 
-# ═══════════════════════════════════════════════════
-#  NEW FEATURE 2: Best Travel Window
-# ═══════════════════════════════════════════════════
-
-def compute_travel_window(
-    origin_lat: float, origin_lon: float,
-    dest_lat: float, dest_lon: float,
-    trip_hours: float = 4.0,
-) -> TravelWindowResult:
-    """
-    Fetches weather at origin, destination, and midpoint.
-    Scores each day 0–100 for travel safety.
-    """
-    mid_lat = (origin_lat + dest_lat) / 2
-    mid_lon = (origin_lon + dest_lon) / 2
-
-    # Fetch all three points
-    origin_data = fetch_road_weather(origin_lat, origin_lon)
-    dest_data = fetch_road_weather(dest_lat, dest_lon)
-    mid_data = fetch_road_weather(mid_lat, mid_lon)
-
-    if any("error" in d for d in [origin_data, dest_data, mid_data]):
-        return TravelWindowResult(trip_hours=trip_hours)
-
-    daily_scores = []
-    origin_daily = origin_data.get("daily", {})
-    dest_daily = dest_data.get("daily", {})
-    num_days = min(7, len(origin_daily.get("time", [])))
-
-    for i in range(num_days):
-        day_scores = []
-
-        for point_data, label in [
-            (origin_data, "origin"),
-            (mid_data, "midpoint"),
-            (dest_data, "destination"),
-        ]:
-            d = point_data.get("daily", {})
-            temp_min_list = d.get("temperature_2m_min", [])
-            temp_max_list = d.get("temperature_2m_max", [])
-            precip_list = d.get("precipitation_sum", [])
-            snow_list = d.get("snowfall_sum", [])
-
-            temp_min = temp_min_list[i] if i < len(temp_min_list) and temp_min_list[i] is not None else 10
-            temp_max = temp_max_list[i] if i < len(temp_max_list) and temp_max_list[i] is not None else 20
-            precip = precip_list[i] if i < len(precip_list) and precip_list[i] is not None else 0
-            snow = snow_list[i] if i < len(snow_list) and snow_list[i] is not None else 0
-
-            # Score this point/day
-            score = 100
-
-            # Precipitation penalty
-            if precip > 20:
-                score -= 40
-            elif precip > 10:
-                score -= 25
-            elif precip > 2:
-                score -= 10
-
-            # Snow penalty (heavy)
-            if snow > 10:
-                score -= 50
-            elif snow > 2:
-                score -= 30
-            elif snow > 0:
-                score -= 15
-
-            # Freezing conditions
-            if temp_min <= 0 and precip > 0:
-                score -= 25
-            if temp_min <= -10:
-                score -= 15
-
-            day_scores.append({"point": label, "score": max(0, score)})
-
-        # Worst point in the corridor determines the day's score
-        corridor_score = min(s["score"] for s in day_scores)
-        worst_point = min(day_scores, key=lambda x: x["score"])
-
-        # Get day label
-        day_label = (datetime.now() + timedelta(days=i)).strftime("%A, %b %d")
-        if i == 0:
-            day_label = "Today"
-        if i == 1:
-            day_label = "Tomorrow"
-
-        origin_time_list = origin_daily.get("time", [])
-        date_str = origin_time_list[i] if i < len(origin_time_list) else ""
-
-        origin_precip_list = origin_daily.get("precipitation_sum", [])
-        dest_precip_list = dest_daily.get("precipitation_sum", [])
-        origin_snow_list = origin_daily.get("snowfall_sum", [])
-
-        daily_scores.append(TravelWindowDay(
-            day=day_label,
-            date=date_str,
-            corridor_score=corridor_score,
-            worst_point=worst_point["point"],
-            grade=("🟢 Excellent" if corridor_score >= 85 else
-                   "🟡 Good" if corridor_score >= 70 else
-                   "🟠 Fair" if corridor_score >= 50 else
-                   "🔴 Poor — consider postponing"),
-            origin_precip=origin_precip_list[i] if i < len(origin_precip_list) and origin_precip_list[i] is not None else 0,
-            dest_precip=dest_precip_list[i] if i < len(dest_precip_list) and dest_precip_list[i] is not None else 0,
-            origin_snow=origin_snow_list[i] if i < len(origin_snow_list) and origin_snow_list[i] is not None else 0,
-        ))
-
-    best_day = max(daily_scores, key=lambda x: x.corridor_score) if daily_scores else None
-
-    return TravelWindowResult(
-        daily_scores=daily_scores,
-        best_travel_day=best_day,
-        trip_hours=trip_hours,
-    )
 
 
 # ═══════════════════════════════════════════════════
