@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Optional
 from pathlib import Path
 
-from config import client, MODEL
+from config import sync_client as client, MODEL
 
 
 # ═══════════════════════════════════════════════════

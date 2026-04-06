@@ -1,5 +1,6 @@
 app/.env
 .env
+backend/.env
 
 # Python
 __pycache__/
@@ -14,6 +15,8 @@ __pycache__/
 *.log
 pipeline_logs.csv
 chat_log.txt
+logs/
+log_analysis.json
 
 # Virtual env
 venv/
@@ -21,6 +24,12 @@ venv/
 
 # Data files
 *.csv
+*.db
+data/public_health.db
+
+# Eval outputs
+eval_results.json
+logs/eval_results.json
 
 # Screenshots / outputs
 output/
