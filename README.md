@@ -97,5 +97,5 @@ streamlit run streamlit_app.py
 ## TEAM: CLOUDMIND
 - **Sayush Maharjan**
 - **Harsha Sri Neeriganti**
-- **[Demo Video](https://www.youtube.com/watch?v=QqnsIIVP4Ng)
+- **[Demo Video](https://www.youtube.com/watch?v=QqnsIIVP4Ng)**
 
